@@ -203,6 +203,36 @@ function svI(){localStorage.setItem('az_i',JSON.stringify(D.invoices));}
 function svE(){localStorage.setItem('az_e',JSON.stringify(D.employees));}
 function cloudSave(table,data){sbUpsert(table,data);}
 function cloudDel(table,id){sbDelete(table,id);}
+function uploadPDF(invId,file,onDone){
+  var path=invId+'.pdf';
+  var reader=new FileReader();
+  reader.onload=function(e){
+    fetch(SB_URL+'/storage/v1/object/invoices/'+path,{
+      method:'POST',
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/pdf','x-upsert':'true'},
+      body:e.target.result
+    }).then(function(r){
+      if(r.ok){
+        var url=SB_URL+'/storage/v1/object/public/invoices/'+path;
+        for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===invId){D.invoices[i].file_url=url;break;}
+        svI();
+        fetch(SB_URL+'/rest/v1/invoices?id=eq.'+invId,{method:'PATCH',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({file_url:url})});
+        if(onDone)onDone(url);
+      }else{alert('שגיאה בהעלאה');}
+    }).catch(function(){alert('שגיאה בחיבור');});
+  };
+  reader.readAsArrayBuffer(file);
+}
+function handlePDFUpload(invId,input){
+  var file=input.files[0];
+  if(!file)return;
+  if(file.type!=='application/pdf'){alert('נא לבחור קובץ PDF בלבד');return;}
+  var lbl=document.getElementById('pdf-lbl-'+invId);
+  if(lbl)lbl.textContent='מעלה...';
+  uploadPDF(invId,file,function(url){
+    if(lbl){lbl.innerHTML='<a href="'+url+'" target="_blank" style="color:#3a6b10">✅ '+file.name+' — לצפייה</a>';}
+  });
+}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function fc(n){if(n===null||n===undefined||n==='')return'—';var x=Math.round(Number(n));if(isNaN(x))return'—';var s=String(x),r='';for(var i=s.length-1,c=0;i>=0;i--,c++){if(c>0&&c%3===0)r=','+r;r=s[i]+r;}return'\u20AA'+r;}
 function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString();}catch(ex){return d;}}
@@ -352,7 +382,7 @@ function vInv(){
       if(closer){chainCell='<span style="font-size:11px;color:#3a6b10">✓ חשב\' מס '+ex(closer.invoice_number||'')+'</span>';}
       else if(inv.status==='paid'||inv.status==='accounting'){chainCell='<span class="need-tax-badge" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">⚠️ דרושה חשבונית מס</span>';}
     }else if(inv.closes_id){var orig=null;for(var j=0;j<D.invoices.length;j++)if(D.invoices[j].id===inv.closes_id){orig=D.invoices[j];break;}chainCell='<span style="font-size:11px;color:#888">סוגרת: '+ex(orig?orig.invoice_number||inv.closes_id:'')+'</span>';}
-    h+='<tr><td style="font-weight:700">'+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td><div style="font-weight:600">'+ex(p?p.name:'—')+'</div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span></td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
+    h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="'+inv.file_url+'" target="_blank" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td><div style="font-weight:600">'+ex(p?p.name:'—')+'</div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span></td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
   }
   h+='</tbody></table></div>';return h;
 }
@@ -473,6 +503,11 @@ function openI(iid,prefPid,prefClosesId){
   h+='<div class="fg"><label class="flbl">תאריך תשלום</label><input class="fi" id="i-dp" type="date" value="'+(inv?inv.date_paid||'':'')+'"></div>';
   h+='<div class="fg w2" id="closes-wrap"></div>';
   h+='<div class="fg w2"><label class="flbl">הערות</label><textarea class="fta" id="i-nt">'+ex(inv?inv.notes||'':'')+'</textarea></div>';
+  h+='<div class="fg w2"><label class="flbl">📎 קובץ PDF</label>';
+  if(inv&&inv.file_url){h+='<div style="display:flex;align-items:center;gap:8px"><a href="'+inv.file_url+'" target="_blank" class="btn btn-sm" style="color:#3a6b10">📄 פתח PDF</a><span id="pdf-lbl-'+inv.id+'"></span><label class="btn btn-sm" style="cursor:pointer">החלף<input type="file" accept=".pdf" style="display:none" onchange="handlePDFUpload(\''+( inv?inv.id:'')+'\'  ,this)"></label></div>';}
+  else if(inv&&inv.id){h+='<label class="btn btn-sm" style="cursor:pointer">📤 העלה PDF<input type="file" accept=".pdf" style="display:none" onchange="handlePDFUpload(\''+inv.id+'\'  ,this)"></label><span id="pdf-lbl-'+inv.id+'"></span>';}
+  else{h+='<span style="font-size:12px;color:#888">שמור קודם כדי להעלות PDF</span>';}
+  h+='</div>';
   h+='</div><div class="mftr">'+(inv?'<button class="btn btn-red" onclick="delI(\''+iid+'\',true)">🗑 מחק</button>':'')+'<button class="btn" onclick="closeM()">ביטול</button><button class="btn btn-blue" onclick="svI2(\''+( iid||'')+'\')" >💾 שמור</button></div>';
   showM(h);
   // Initialize closes dropdown if editing a tax invoice
@@ -517,14 +552,14 @@ function openPI(pid){
       transactionInvs.forEach(function(ta){
         var s=gi(ta.status);var taxInv=taxInvs[ta.id];
         h+='<div class="inv-chain">';
-        h+='<div class="inv-chain-main"><span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button></div>';
+        h+='<div class="inv-chain-main">'+(ta.file_url?'<a href="'+ta.file_url+'" target="_blank" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button></div>';
         if(taxInv){var ts=gi(taxInv.status);h+='<div class="inv-chain-sub has-tax"><span class="chain-arrow">└──</span><span style="font-weight:700;min-width:70px">'+ex(taxInv.invoice_number||'—')+'</span><span class="badge b-chev" style="font-size:10px">חשב\' מס</span><span style="color:#3a6b10;font-size:12px">'+fd(taxInv.date_sent)+'</span><span style="font-weight:700">'+fc(taxInv.amount)+'</span><span class="pill" style="color:'+ts.c+';background:'+ts.bg+';font-size:11px;cursor:default">'+ts.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+taxInv.id+'\',null)">✏️</button></div>';}
         else if(ta.status==='paid'||ta.status==='accounting'){h+='<div class="inv-chain-sub need-tax" onclick="closeM();openI(null,\''+pid+'\',\''+ta.id+'\')"><span class="chain-arrow">└──</span><span>⚠️ שולם — דרושה הוצאת חשבונית מס</span><span style="margin-right:auto;font-size:11px;font-weight:700">לחץ להוסיף ▸</span></div>';}
         h+='</div>';
       });
     }
     if(otherInvs.length){if(transactionInvs.length)h+='<div style="font-size:11px;font-weight:700;color:#888;margin:10px 0 6px">חשבוניות אחרות</div>';
-      otherInvs.forEach(function(inv){if(linkedTaxIds[inv.id])return;var s=gi(inv.status);h+='<div class="inv-chain-solo"><span style="font-weight:700;min-width:70px">'+ex(inv.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">'+ex(inv.invoice_type||'')+'</span><span style="color:#888;font-size:12px">'+fd(inv.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+inv.id+'\',null)">✏️</button></div>';});
+      otherInvs.forEach(function(inv){if(linkedTaxIds[inv.id])return;var s=gi(inv.status);h+='<div class="inv-chain-solo">'+(inv.file_url?'<a href="'+inv.file_url+'" target="_blank" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(inv.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">'+ex(inv.invoice_type||'')+'</span><span style="color:#888;font-size:12px">'+fd(inv.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+inv.id+'\',null)">✏️</button></div>';});
     }
   }
   h+='<div class="mftr"><button class="btn btn-blue" onclick="closeM();openI(null,\''+pid+'\')">+ חשבונית חדשה</button></div>';
