@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ניהול פיקוח — ארזים הנדסה</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap');
+
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --sb:220px;
+  --tb:56px;
+  --bg:#f0eeea;
+  --surf:#ffffff;
+  --border:rgba(0,0,0,0.09);
+  --border2:rgba(0,0,0,0.16);
+  --text:#1e1e1c;
+  --muted:#6b6a66;
+  --hint:#a09f9b;
+  --r:8px;
+  --rl:12px;
+  --blue:#185FA5;
+  --blue-bg:#E6F1FB;
+  --green:#3B6D11;
+  --green-bg:#EAF3DE;
+  --amber:#854F0B;
+  --amber-bg:#FAEEDA;
+  --red:#A32D2D;
+  --red-bg:#FCEBEB;
+  --purple:#3C3489;
+  --purple-bg:#EEEDFE;
+  --teal:#0F6E56;
+  --teal-bg:#E1F5EE;
+  --gray:#5F5E5A;
+  --gray-bg:#F1EFE8;
+}
+html{font-family:'Heebo',sans-serif;font-size:14px;line-height:1.5;}
+body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;overflow-x:hidden;}
+
+/* ── SIDEBAR ── */
+#sidebar{
+  width:var(--sb);background:var(--surf);
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+  position:fixed;right:0;top:0;bottom:0;z-index:100;
+}
+.sb-logo{padding:18px 20px 14px;border-bottom:1px solid var(--border);}
+.sb-logo-mark{font-size:20px;font-weight:700;color:var(--blue);letter-spacing:-0.5px;}
+.sb-logo-sub{font-size:11px;color:var(--muted);margin-top:1px;}
+.sb-section{font-size:10px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.08em;padding:14px 20px 4px;}
+.nav-item{
+  display:flex;align-items:center;gap:9px;
+  padding:9px 20px;cursor:pointer;
+  color:var(--muted);font-size:13px;font-weight:400;
+  transition:background 0.12s,color 0.12s;
+  position:relative;
+}
+.nav-item:hover{background:#f5f4f0;color:var(--text);}
+.nav-item.active{color:var(--blue);font-weight:500;background:var(--blue-bg);}
+.nav-item.active::after{content:'';position:absolute;right:0;top:4px;bottom:4px;width:3px;background:var(--blue);border-radius:2px 0 0 2px;}
+.nav-ic{font-size:15px;width:18px;text-align:center;}
+.nav-badge{
+  margin-right:auto;
+  background:var(--red);color:#fff;
+  font-size:10px;font-weight:600;
+  padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;
+}
+.sb-bottom{margin-top:auto;padding:16px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--hint);}
+
+/* ── MAIN ── */
+#content{margin-right:var(--sb);flex:1;display:flex;flex-direction:column;min-height:100vh;}
+
+/* ── TOPBAR ── */
+#topbar{
+  background:var(--surf);border-bottom:1px solid var(--border);
+  height:var(--tb);display:flex;align-items:center;
+  padding:0 24px;gap:10px;position:sticky;top:0;z-index:50;
+}
+#topbar h2{font-size:15px;font-weight:600;flex:1;}
+.topbar-meta{font-size:12px;color:var(--muted);}
+
+/* ── VIEW ── */
+#view{padding:22px 24px;flex:1;}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 14px;border-radius:var(--r);
+  border:1px solid var(--border2);background:var(--surf);
+  color:var(--text);cursor:pointer;font-size:13px;font-weight:500;
+  font-family:'Heebo',sans-serif;transition:background 0.12s;white-space:nowrap;
+}
+.btn:hover{background:#f5f4f0;}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue);}
+.btn-primary:hover{background:#0C447C;}
+.btn-sm{padding:4px 10px;font-size:12px;}
+.btn-ghost{border-color:transparent;background:transparent;}
+.btn-ghost:hover{background:#f5f4f0;}
+.btn-red{color:var(--red);border-color:#F09595;}
+.btn-red:hover{background:var(--red-bg);}
+.btn-green{background:var(--teal-bg);color:var(--teal);border-color:#9FE1CB;}
+.btn-green:hover{background:#c2edd9;}
+
+/* ── CARDS / STATS ── */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;}
+.stat-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);padding:14px 16px;}
+.stat-label{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:500;}
+.stat-value{font-size:21px;font-weight:700;letter-spacing:-0.5px;}
+.stat-sub{font-size:11px;color:var(--hint);margin-top:3px;}
+
+/* ── FILTER BAR ── */
+.filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
+.filter-bar select,.filter-bar input[type=text]{
+  padding:6px 10px;border:1px solid var(--border2);border-radius:var(--r);
+  background:var(--surf);color:var(--text);font-size:13px;font-family:'Heebo',sans-serif;
+}
+.filter-bar select:focus,.filter-bar input:focus{outline:none;border-color:var(--blue);}
+.filter-bar input{width:180px;}
+.filter-count{font-size:12px;color:var(--muted);margin-right:auto;}
+
+/* ── TABLE ── */
+.tbl-wrap{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;}
+table{width:100%;border-collapse:collapse;}
+th{
+  padding:9px 13px;font-size:11px;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:0.05em;
+  border-bottom:1px solid var(--border);text-align:right;
+  background:#faf9f7;white-space:nowrap;
+}
+td{padding:10px 13px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#faf9f8;}
+.tbl-empty{padding:40px;text-align:center;color:var(--hint);font-size:13px;}
+
+/* ── PILLS / BADGES ── */
+.pill{
+  display:inline-flex;align-items:center;padding:3px 9px;
+  border-radius:20px;font-size:11px;font-weight:500;white-space:nowrap;
+  cursor:pointer;transition:opacity 0.12s;
+}
+.pill:hover{opacity:0.8;}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;}
+.badge-osek{background:var(--blue-bg);color:var(--blue);}
+.badge-chevra{background:var(--purple-bg);color:var(--purple);}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block;}
+.client-chip{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;}
+
+/* ── WORK ORDER ── */
+.wo-ok{display:inline-flex;align-items:center;gap:3px;background:var(--green-bg);color:var(--green);border:1px solid #C0DD97;border-radius:4px;font-size:11px;padding:2px 7px;}
+.wo-miss{color:var(--amber);font-size:11px;display:flex;align-items:center;gap:3px;}
+
+/* ── ALERTS ── */
+.alert-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 14px;background:var(--amber-bg);
+  border:1px solid #FAC775;border-radius:var(--r);
+  margin-bottom:6px;font-size:13px;color:#633806;
+}
+.alert-act{margin-right:auto;font-size:12px;color:var(--amber);cursor:pointer;font-weight:500;}
+.alert-act:hover{text-decoration:underline;}
+
+/* ── MODAL ── */
+#modal-bg{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.3);z-index:200;
+  align-items:center;justify-content:center;
+}
+#modal-bg.open{display:flex;}
+.modal{
+  background:var(--surf);border-radius:var(--rl);padding:24px;
+  width:640px;max-width:calc(100vw - 32px);
+  max-height:calc(100vh - 60px);overflow-y:auto;
+}
+.modal-hdr{display:flex;align-items:center;margin-bottom:20px;}
+.modal-title{font-size:15px;font-weight:600;flex:1;}
+.modal-x{background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted);padding:4px;font-family:'Heebo',sans-serif;}
+.modal-x:hover{color:var(--text);}
+
+/* ── FORM ── */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.fg{display:flex;flex-direction:column;gap:4px;}
+.fg.full{grid-column:1/-1;}
+.flabel{font-size:11px;font-weight:600;color:var(--muted);}
+.fi,.fs,.fta{
+  padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);
+  font-size:13px;font-family:'Heebo',sans-serif;color:var(--text);background:var(--surf);
+}
+.fi:focus,.fs:focus,.fta:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(24,95,165,0.12);}
+.fta{resize:vertical;min-height:66px;}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border);}
+
+/* ── STATUS OPTIONS ── */
+.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.status-opt{
+  padding:10px 13px;border-radius:var(--r);border:1.5px solid transparent;
+  cursor:pointer;font-size:13px;font-weight:500;transition:opacity 0.12s;
+}
+.status-opt:hover{opacity:0.82;}
+.status-opt.sel{border-color:currentColor!important;}
+
+/* ── EMPLOYEE CARDS ── */
+.emp-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);padding:16px 18px;margin-bottom:10px;}
+.emp-avatar{width:38px;height:38px;border-radius:50%;background:var(--blue-bg);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--blue);flex-shrink:0;}
+.profit-num{font-size:19px;font-weight:700;letter-spacing:-0.5px;}
+.emp-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+.emp-metric{text-align:center;}
+.emp-metric-label{font-size:10px;color:var(--muted);margin-bottom:3px;}
+.emp-metric-val{font-size:14px;font-weight:600;}
+
+/* ── INFO BAR ── */
+.info-bar{background:var(--teal-bg);border:1px solid #9FE1CB;border-radius:var(--r);padding:10px 14px;font-size:13px;color:#085041;margin-bottom:18px;}
+
+/* ── CLIENT SUMMARY ── */
+.client-sum-row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f0eeea;font-size:13px;}
+.client-sum-row:last-child{border-bottom:none;}
+
+/* ── SECTION HEADER ── */
+.sec-hdr{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.sec-hdr h3{font-size:14px;font-weight:600;}
+
+/* ── TOTAL ROW ── */
+tfoot td{padding:9px 13px;font-size:13px;font-weight:600;background:#faf9f7;border-top:1px solid var(--border);}
+
+/* ── RESPONSIVE ── */
+@media(max-width:880px){
+  :root{--sb:0px;}
+  #sidebar{display:none;}
+  .stats-grid{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside id="sidebar">
+  <div class="sb-logo">
+    <div class="sb-logo-mark">ארזים</div>
+    <div class="sb-logo-sub">ניהול פיקוח בנייה</div>
+  </div>
+  <nav>
+    <div class="sb-section">ראשי</div>
+    <div class="nav-item active" onclick="nav('dashboard')" id="nav-dashboard">
+      <span class="nav-ic">📊</span>לוח בקרה
+    </div>
+    <div class="nav-item" onclick="nav('projects')" id="nav-projects">
+      <span class="nav-ic">📋</span>כל הפרויקטים
+      <span class="nav-badge" id="open-badge" style="display:none">0</span>
+    </div>
+    <div class="nav-item" onclick="nav('invoices')" id="nav-invoices">
+      <span class="nav-ic">🧾</span>חשבוניות
+      <span class="nav-badge" id="inv-badge" style="display:none">0</span>
+    </div>
+    <div class="sb-section">עובדים</div>
+    <div class="nav-item" onclick="nav('employees')" id="nav-employees">
+      <span class="nav-ic">👥</span>עובדים ורווח
+    </div>
+    <div class="sb-section">התראות</div>
+    <div class="nav-item" onclick="nav('alerts')" id="nav-alerts">
+      <span class="nav-ic">⚠️</span>דברים פתוחים
+      <span class="nav-badge" id="alerts-badge">0</span>
+    </div>
+  </nav>
+  <div class="sb-bottom">מ.ס ארזים הנדסה בע"מ</div>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main id="content">
+  <header id="topbar">
+    <h2 id="view-title">לוח בקרה</h2>
+    <div id="topbar-actions"></div>
+  </header>
+  <div id="view"></div>
+</main>
+
+<!-- ══════════ MODAL ══════════ -->
+<div id="modal-bg" onclick="bgClose(event)">
+  <div class="modal" id="modal" onclick="event.stopPropagation()"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   DATA CONSTANTS
+═══════════════════════════════════════ */
+const CLIENTS=[
+  {id:'jlm', name:'עיריית ירושלים',      entity:'עוסק',  color:'#185FA5'},
+  {id:'rl',  name:'עיריית ראשון לציון',   entity:'עוסק',  color:'#3C3489'},
+  {id:'bs',  name:'עיריית בית שמש',       entity:'חברה',  color:'#0F6E56'},
+  {id:'ge',  name:'גוש עציון',            entity:'עוסק',  color:'#854F0B'},
+  {id:'ef',  name:'אפרת',                 entity:'חברה',  color:'#993556'},
+  {id:'nc',  name:'נס ציונה',             entity:'עוסק',  color:'#5F5E5A'},
+  {id:'kg',  name:'קרית גת',              entity:'עוסק',  color:'#5F5E5A'},
+];
+
+const DEPTS={
+  jlm:[
+    {id:'jlm_admin',  name:'מינהלת העירייה',           has_emp:true},
+    {id:'jlm_plan',   name:'מנהל חינוך — תכנון',       has_emp:false},
+    {id:'jlm_exec',   name:'מנהל חינוך — ביצוע/אחר',  has_emp:false},
+    {id:'jlm_nagish', name:'נגישות ואקוסטיקה',          has_emp:false},
+    {id:'jlm_safety', name:'בטיחות חינוך חרדי',         has_emp:false},
+  ],
+  rl:[
+    {id:'rl_elect', name:'מחלקת חשמל', has_emp:true},
+    {id:'rl_binuy', name:'מחלקת בינוי', has_emp:true},
+    {id:'rl_shpua', name:'מחלקת שפ"ע', has_emp:true},
+  ],
+  bs:[{id:'bs_gen',name:'כללי',has_emp:false}],
+  ge:[{id:'ge_gen',name:'כללי',has_emp:false}],
+  ef:[{id:'ef_gen',name:'כללי',has_emp:false}],
+  nc:[{id:'nc_gen',name:'כללי',has_emp:false}],
+  kg:[{id:'kg_gen',name:'כללי',has_emp:false}],
+};
+
+const STATUSES={
+  no_order:     {label:'ללא הזמנה',         color:'#888780', bg:'#F1EFE8'},
+  pending_order:{label:'ממתין להזמנה',       color:'#854F0B', bg:'#FAEEDA'},
+  offer_sent:   {label:'נשלח חשבון עסקה',   color:'#185FA5', bg:'#E6F1FB'},
+  accounting:   {label:'בהנה"ח עירייה',      color:'#0F6E56', bg:'#E1F5EE'},
+  paid:         {label:'שולם',               color:'#3B6D11', bg:'#EAF3DE'},
+  invoice_sent: {label:'נשלחה חשבונית מס',  color:'#3C3489', bg:'#EEEDFE'},
+  closed:       {label:'סגור',               color:'#5F5E5A', bg:'#F1EFE8'},
+};
+
+const INV_TYPES=['הצעת מחיר','חשבון עסקה','חשבונית מס','קבלה'];
+
+const INV_ST={
+  draft:     {label:'טיוטה',   color:'#888780', bg:'#F1EFE8'},
+  sent:      {label:'נשלח',    color:'#185FA5', bg:'#E6F1FB'},
+  accounting:{label:'בהנה"ח', color:'#854F0B', bg:'#FAEEDA'},
+  paid:      {label:'שולם',    color:'#3B6D11', bg:'#EAF3DE'},
+};
+
+/* ═══════════════════════════════════════
+   STATE
+═══════════════════════════════════════ */
+let S={view:'dashboard',projects:[],invoices:[],employees:[],
+  filters:{client:'',status:'',entity:'',q:''}};
+
+/* ═══════════════════════════════════════
+   PERSISTENCE
+═══════════════════════════════════════ */
+const LS={
+  load(){
+    S.projects =JSON.parse(localStorage.getItem('az_p')||'[]');
+    S.invoices =JSON.parse(localStorage.getItem('az_i')||'[]');
+    S.employees=JSON.parse(localStorage.getItem('az_e')||'[]');
+  },
+  saveP(){localStorage.setItem('az_p',JSON.stringify(S.projects));},
+  saveI(){localStorage.setItem('az_i',JSON.stringify(S.invoices));},
+  saveE(){localStorage.setItem('az_e',JSON.stringify(S.employees));},
+};
+
+/* ═══════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════ */
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const fc=n=>(!n&&n!==0)?'—':'₪'+Math.round(n).toLocaleString('he-IL');
+const fd=d=>d?new Date(d).toLocaleDateString('he-IL'):'—';
+const cl=id=>CLIENTS.find(c=>c.id===id)||{};
+const dep=( cid,did)=>(DEPTS[cid]||[]).find(d=>d.id===did)||{};
+const st=s=>STATUSES[s]||STATUSES.no_order;
+const ist=s=>INV_ST[s]||INV_ST.draft;
+const projInvs=pid=>S.invoices.filter(i=>i.project_id===pid);
+const alerts=()=>S.projects.filter(p=>p.status!=='closed'&&
+  (p.status==='no_order'||p.status==='pending_order'||
+  (p.status==='paid'&&!p.invoice_sent_date)));
+const pendingInvs=()=>S.invoices.filter(i=>i.status==='sent'||i.status==='accounting');
+const totalAmt=(arr,field)=>arr.reduce((s,x)=>s+(x[field]||0),0);
+
+/* ═══════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════ */
+function nav(view){
+  S.view=view;
+  document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
+  const el=document.getElementById('nav-'+view);
+  if(el)el.classList.add('active');
+  const titles={dashboard:'לוח בקרה',projects:'כל הפרויקטים',invoices:'חשבוניות',employees:'עובדים ורווח',alerts:'דברים פתוחים'};
+  document.getElementById('view-title').textContent=titles[view]||view;
+  const acts={
+    projects:`<button class="btn btn-primary" onclick="openProjModal()">+ פרויקט חדש</button>`,
+    invoices:`<button class="btn btn-primary" onclick="openInvModal()">+ חשבונית חדשה</button>`,
+    employees:`<button class="btn btn-primary" onclick="openEmpModal()">+ עובד חדש</button>`,
+  };
+  document.getElementById('topbar-actions').innerHTML=acts[view]||'';
+  const renders={dashboard:renderDash,projects:renderProjects,invoices:renderInvoices,employees:renderEmployees,alerts:renderAlerts};
+  document.getElementById('view').innerHTML=(renders[view]||renderDash)();
+  updateBadges();
+}
+
+function updateBadges(){
+  const al=alerts().length;
+  const ob=document.getElementById('alerts-badge');
+  if(ob)ob.textContent=al;
+  const pb=document.getElementById('open-badge');
+  const op=S.projects.filter(p=>p.status!=='closed').length;
+  if(pb){pb.textContent=op;pb.style.display=op?'':'none';}
+  const ib=document.getElementById('inv-badge');
+  const ip=pendingInvs().length;
+  if(ib){ib.textContent=ip;ib.style.display=ip?'':'none';}
+}
+
+/* ═══════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════ */
+function renderDash(){
+  const active=S.projects.filter(p=>p.status!=='closed').length;
+  const noOrd=S.projects.filter(p=>p.status==='no_order').length;
+  const pendAmt=totalAmt(pendingInvs(),'amount');
+  const paidAmt=totalAmt(S.invoices.filter(i=>i.status==='paid'),'amount');
+  const al=alerts();
+
+  const clientRows=CLIENTS.map(c=>{
+    const ps=S.projects.filter(p=>p.client_id===c.id&&p.status!=='closed');
+    if(!ps.length)return'';
+    const tot=totalAmt(ps,'supervision_amount');
+    return`<div class="client-sum-row">
+      <span class="dot" style="background:${c.color}"></span>
+      <span style="flex:1;font-weight:500;">${c.name}</span>
+      <span style="color:var(--muted);font-size:12px;">${ps.length} פרויקטים</span>
+      <span style="font-weight:600;min-width:90px;text-align:left;">${fc(tot)}</span>
+    </div>`;
+  }).join('');
+
+  const alHtml=al.slice(0,6).map(p=>{
+    const c=cl(p.client_id);const s=st(p.status);
+    return`<div class="alert-item">
+      <span>⚠️</span>
+      <span><strong>${p.name}</strong> — ${c.name||''}</span>
+      <span class="pill" style="color:${s.color};background:${s.bg};font-size:11px;">${s.label}</span>
+      <span class="alert-act" onclick="nav('projects')">→ פתח</span>
+    </div>`;
+  }).join('');
+
+  return`
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">פרויקטים פעילים</div>
+      <div class="stat-value">${active}</div>
+      <div class="stat-sub">${noOrd} ללא הזמנת עבודה</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">בהמתנה לתשלום</div>
+      <div class="stat-value" style="color:var(--amber);">${fc(pendAmt)}</div>
+      <div class="stat-sub">${pendingInvs().length} חשבוניות</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">שולם השנה</div>
+      <div class="stat-value" style="color:var(--green);">${fc(paidAmt)}</div>
+      <div class="stat-sub">כל הלקוחות</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">דורשים טיפול</div>
+      <div class="stat-value" style="color:var(--red);">${al.length}</div>
+      <div class="stat-sub">התראות פתוחות</div>
+    </div>
+  </div>
+  ${al.length?`<div style="margin-bottom:20px;"><div style="font-size:13px;font-weight:600;color:var(--amber);margin-bottom:8px;">⚠️ דורשים טיפול מיידי</div>${alHtml}</div>`:''}
+  <div class="tbl-wrap">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;">סיכום לפי לקוח</div>
+    <div style="padding:0 16px;">
+      ${clientRows||'<div style="padding:24px;color:var(--hint);text-align:center;">אין פרויקטים פעילים — הוסף פרויקט ראשון מהתפריט</div>'}
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════
+   PROJECTS
+═══════════════════════════════════════ */
+function filteredProjects(){
+  return S.projects.filter(p=>{
+    if(S.filters.client&&p.client_id!==S.filters.client)return false;
+    if(S.filters.status&&p.status!==S.filters.status)return false;
+    if(S.filters.entity&&p.entity!==S.filters.entity)return false;
+    if(S.filters.q){
+      const q=S.filters.q.toLowerCase();
+      if(!(p.name||'').toLowerCase().includes(q)&&
+         !(p.contact_name||'').toLowerCase().includes(q)&&
+         !(p.work_order_number||'').toLowerCase().includes(q))return false;
+    }
+    return true;
+  });
+}
+
+function renderProjects(){
+  const ps=filteredProjects();
+  const clOpts=CLIENTS.map(c=>`<option value="${c.id}" ${S.filters.client===c.id?'selected':''}>${c.name}</option>`).join('');
+  const stOpts=Object.entries(STATUSES).map(([k,v])=>`<option value="${k}" ${S.filters.status===k?'selected':''}>${v.label}</option>`).join('');
+
+  const rows=ps.map(p=>{
+    const c=cl(p.client_id);const d=dep(p.client_id,p.department_id);
+    const s=st(p.status);const invs=projInvs(p.id);const li=invs[invs.length-1];
+    return`<tr>
+      <td>
+        <div class="client-chip"><span class="dot" style="background:${c.color||'#888'}"></span><span>${c.name||p.client_id}</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;padding-right:13px;">${d.name||''}</div>
+      </td>
+      <td>
+        <div style="font-weight:500;">${p.name}</div>
+        ${p.contact_name?`<div style="font-size:11px;color:var(--muted);">${p.contact_name}</div>`:''}
+      </td>
+      <td><span class="badge ${p.entity==='חברה'?'badge-chevra':'badge-osek'}">${p.entity||'עוסק'}</span></td>
+      <td style="font-weight:500;font-variant-numeric:tabular-nums;">${fc(p.supervision_amount)}</td>
+      <td>
+        <span class="pill" style="color:${s.color};background:${s.bg};"
+          onclick="openStatusModal('${p.id}')" title="לחץ לשינוי סטטוס">
+          ${s.label} ▾
+        </span>
+      </td>
+      <td>
+        ${p.work_order_number
+          ?`<span class="wo-ok">✓ ${p.work_order_number}</span>`
+          :`<span class="wo-miss">⚠️ חסרה</span>`}
+      </td>
+      <td>
+        ${li?`<div style="font-size:12px;"><span style="color:var(--muted);">${li.invoice_type}</span> <span style="color:var(--hint);">${li.invoice_number||''}</span></div>`
+           :'<span style="font-size:11px;color:var(--hint);">—</span>'}
+      </td>
+      <td>
+        <div style="display:flex;gap:3px;">
+          <button class="btn btn-sm btn-ghost" onclick="openProjModal('${p.id}')" title="עריכה">✏️</button>
+          <button class="btn btn-sm btn-ghost" onclick="openProjInvs('${p.id}')" title="חשבוניות">🧾</button>
+          <button class="btn btn-sm btn-ghost btn-red" onclick="delProj('${p.id}')" title="מחיקה">🗑</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const tot=totalAmt(ps,"supervision_amount");
+
+  return`
+  <div class="filter-bar">
+    <select onchange="setFilter('client',this.value)">
+      <option value="">כל הלקוחות</option>${clOpts}
+    </select>
+    <select onchange="setFilter('status',this.value)">
+      <option value="">כל הסטטוסים</option>${stOpts}
+    </select>
+    <select onchange="setFilter('entity',this.value)">
+      <option value="">עוסק + חברה</option>
+      <option value="עוסק" ${S.filters.entity==='עוסק'?'selected':''}>עוסק מורשה</option>
+      <option value="חברה" ${S.filters.entity==='חברה'?'selected':''}>חברה בע"מ</option>
+    </select>
+    <input type="text" placeholder="🔍 חיפוש..." value="${S.filters.q}"
+      oninput="setFilter('q',this.value)">
+    <span class="filter-count">${ps.length} פרויקטים | סה"כ: ${fc(tot)}</span>
+    ${Object.values(S.filters).some(Boolean)?`<button class="btn btn-sm" onclick="clearFilters()">✕ נקה</button>`:''}
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>לקוח / מחלקה</th><th>פרויקט</th><th>ישות</th>
+        <th>סכום פיקוח</th><th>סטטוס</th><th>הזמנת עבודה</th>
+        <th>חשבון אחרון</th><th>פעולות</th>
+      </tr></thead>
+      <tbody>${rows||`<tr><td colspan="8" class="tbl-empty">אין פרויקטים. לחץ "+ פרויקט חדש" למעלה.</td></tr>`}</tbody>
+      ${ps.length?`<tfoot><tr>
+        <td colspan="3" style="color:var(--muted);">סה"כ ${ps.length} פרויקטים</td>
+        <td style="color:var(--blue);">${fc(tot)}</td>
+        <td colspan="4"></td>
+      </tr></tfoot>`:''}
+    </table>
+  </div>`;
+}
+
+function setFilter(k,v){S.filters[k]=v;document.getElementById('view').innerHTML=renderProjects();updateBadges();}
+function clearFilters(){S.filters={client:'',status:'',entity:'',q:''};nav('projects');}
+
+/* ═══════════════════════════════════════
+   INVOICES
+═══════════════════════════════════════ */
+function renderInvoices(){
+  const invs=[...S.invoices].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const pendAmt=totalAmt(pendingInvs(),'amount');
+  const paidAmt=totalAmt(S.invoices.filter(i=>i.status==='paid'),'amount');
+
+  const rows=invs.map(inv=>{
+    const p=S.projects.find(x=>x.id===inv.project_id)||{};
+    const c=cl(p.client_id);const s=ist(inv.status);
+    return`<tr>
+      <td style="font-weight:500;">${inv.invoice_number||'—'}</td>
+      <td><span style="color:var(--muted);font-size:12px;">${inv.invoice_type||'—'}</span></td>
+      <td>
+        <div style="font-weight:500;">${p.name||'—'}</div>
+        <div class="client-chip" style="margin-top:2px;">
+          <span class="dot" style="background:${c.color||'#888'};width:6px;height:6px;"></span>
+          <span style="font-size:11px;color:var(--muted);">${c.name||''}</span>
+        </div>
+      </td>
+      <td><span class="badge ${inv.entity==='חברה'?'badge-chevra':'badge-osek'}">${inv.entity||'עוסק'}</span></td>
+      <td style="font-weight:600;color:var(--green);">${fc(inv.amount)}</td>
+      <td style="font-size:12px;color:var(--muted);">${fd(inv.date_sent)}</td>
+      <td><span class="pill" style="color:${s.color};background:${s.bg};">${s.label}</span></td>
+      <td>
+        <div style="display:flex;gap:3px;">
+          <button class="btn btn-sm btn-ghost" onclick="openInvModal('${inv.id}')">✏️</button>
+          <button class="btn btn-sm btn-ghost btn-red" onclick="delInv('${inv.id}')">🗑</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return`
+  <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);">
+    <div class="stat-card"><div class="stat-label">סה"כ חשבוניות</div><div class="stat-value">${S.invoices.length}</div></div>
+    <div class="stat-card"><div class="stat-label">ממתין לתשלום</div><div class="stat-value" style="color:var(--amber);">${fc(pendAmt)}</div></div>
+    <div class="stat-card"><div class="stat-label">שולם סה"כ</div><div class="stat-value" style="color:var(--green);">${fc(paidAmt)}</div></div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>מספר חשבונית</th><th>סוג</th><th>פרויקט</th><th>ישות</th>
+        <th>סכום</th><th>תאריך שליחה</th><th>סטטוס</th><th>פעולות</th>
+      </tr></thead>
+      <tbody>${rows||`<tr><td colspan="8" class="tbl-empty">אין חשבוניות. לחץ "+ חשבונית חדשה".</td></tr>`}</tbody>
+    </table>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════
+   EMPLOYEES
+═══════════════════════════════════════ */
+function renderEmployees(){
+  const cards=S.employees.map(e=>{
+    const c=cl(e.client_id);const d=dep(e.client_id,e.department_id);
+    const income=(e.monthly_hours||0)*(e.hourly_rate||0);
+    const cost=(e.employer_cost||0)+(e.car_cost_monthly||0);
+    const profit=income-cost;
+    return`<div class="emp-card">
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div class="emp-avatar">${(e.name||'?')[0]}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:14px;">${e.name}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:1px;">
+            ${c.name||''} — ${d.name||''}${e.has_car?' 🚗':''}
+          </div>
+        </div>
+        <div style="text-align:left;">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:2px;">רווח חודשי</div>
+          <div class="profit-num" style="color:${profit>=0?'var(--green)':'var(--red)'};">${fc(profit)}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="openEmpModal('${e.id}')">✏️</button>
+      </div>
+      <div class="emp-metrics">
+        <div class="emp-metric"><div class="emp-metric-label">שעות / חודש</div><div class="emp-metric-val">${e.monthly_hours||0}</div></div>
+        <div class="emp-metric"><div class="emp-metric-label">תעריף / שעה</div><div class="emp-metric-val">${fc(e.hourly_rate)}</div></div>
+        <div class="emp-metric"><div class="emp-metric-label">הכנסה</div><div class="emp-metric-val" style="color:var(--blue);">${fc(income)}</div></div>
+        <div class="emp-metric"><div class="emp-metric-label">עלות מעסיק + רכב</div><div class="emp-metric-val" style="color:var(--red);">${fc(cost)}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return`
+  <div class="info-bar">💡 <strong>עדכן עלויות עובד כל חודש</strong> לאחר קבלת המייל מרואה החשבון. הסכום כולל עלות מעסיק + עלות רכב.</div>
+  ${cards||'<div style="text-align:center;padding:40px;color:var(--hint);">לא הוגדרו עובדים. לחץ "+ עובד חדש".</div>'}`;
+}
+
+/* ═══════════════════════════════════════
+   ALERTS
+═══════════════════════════════════════ */
+function renderAlerts(){
+  const noOrd=S.projects.filter(p=>p.status==='no_order');
+  const pendOrd=S.projects.filter(p=>p.status==='pending_order');
+  const pendPay=pendingInvs();
+
+  const sec=(title,items,render,empty)=>
+    `<div style="margin-bottom:22px;">
+      <h3 style="font-size:13px;font-weight:600;margin-bottom:8px;">${title}</h3>
+      ${items.length?items.map(render).join(''):
+        `<div style="color:var(--hint);font-size:13px;padding:10px 0;">✅ ${empty}</div>`}
+    </div>`;
+
+  return sec(`⚠️ ללא הזמנת עבודה (${noOrd.length})`,noOrd,p=>{
+    const c=cl(p.client_id);
+    return`<div class="alert-item">
+      <span class="dot" style="background:${c.color||'#888'}"></span>
+      <span><strong>${p.name}</strong> — ${c.name||''}</span>
+      <span style="color:var(--muted);font-size:12px;margin-right:auto;">${fc(p.supervision_amount)}</span>
+      <span class="alert-act" onclick="openStatusModal('${p.id}')">עדכן סטטוס</span>
+    </div>`;
+  },'אין פרויקטים ללא הזמנת עבודה')
+  +sec(`🕐 ממתין להזמנה (${pendOrd.length})`,pendOrd,p=>{
+    const c=cl(p.client_id);
+    return`<div class="alert-item" style="background:#FFF3E0;border-color:#FFB74D;color:#5D3A00;">
+      <span class="dot" style="background:${c.color||'#888'}"></span>
+      <span><strong>${p.name}</strong> — ${c.name||''}</span>
+      <span style="color:var(--muted);font-size:12px;margin-right:auto;">${fc(p.supervision_amount)}</span>
+      <span class="alert-act" style="color:#854F0B;" onclick="openStatusModal('${p.id}')">עדכן</span>
+    </div>`;
+  },'אין ממתינים להזמנה')
+  +sec(`💰 ממתין לתשלום (${pendPay.length})`,pendPay,inv=>{
+    const p=S.projects.find(x=>x.id===inv.project_id)||{};const c=cl(p.client_id);
+    return`<div class="alert-item" style="background:var(--teal-bg);border-color:#9FE1CB;color:#085041;">
+      <span class="dot" style="background:${c.color||'#888'}"></span>
+      <span><strong>${inv.invoice_number||'—'}</strong> | ${p.name||'—'} — ${c.name||''}</span>
+      <span style="font-weight:600;margin-right:auto;">${fc(inv.amount)}</span>
+      <span class="alert-act" style="color:var(--teal);" onclick="openInvModal('${inv.id}')">עדכן</span>
+    </div>`;
+  },'אין חשבוניות ממתינות לתשלום');
+}
+
+/* ═══════════════════════════════════════
+   PROJECT MODAL
+═══════════════════════════════════════ */
+function openProjModal(pid){
+  const p=pid?S.projects.find(x=>x.id===pid):null;
+  const isEdit=!!p;
+  const clOpts=CLIENTS.map(c=>`<option value="${c.id}" ${p?.client_id===c.id?'selected':''}>${c.name}</option>`).join('');
+  const initCl=p?.client_id||CLIENTS[0].id;
+  const dOpts=buildDeptOpts(initCl,p?.department_id);
+  const stOpts=Object.entries(STATUSES).map(([k,v])=>`<option value="${k}" ${(p?.status||'no_order')===k?'selected':''}>${v.label}</option>`).join('');
+
+  modal(`
+    <div class="modal-hdr">
+      <span class="modal-title">${isEdit?'עריכת פרויקט':'פרויקט חדש'}</span>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="fgrid">
+      <div class="fg">
+        <label class="flabel">לקוח</label>
+        <select class="fs" id="fc-cl" onchange="onClChange(this.value)">
+          ${clOpts}
+        </select>
+      </div>
+      <div class="fg">
+        <label class="flabel">מחלקה</label>
+        <select class="fs" id="fc-dept">${dOpts}</select>
+      </div>
+      <div class="fg full">
+        <label class="flabel">שם הפרויקט *</label>
+        <input class="fi" id="fc-name" value="${p?.name||''}" placeholder="שם הפרויקט">
+      </div>
+      <div class="fg">
+        <label class="flabel">איש קשר</label>
+        <input class="fi" id="fc-cont" value="${p?.contact_name||''}" placeholder="שם / ת.ז">
+      </div>
+      <div class="fg">
+        <label class="flabel">ישות</label>
+        <select class="fs" id="fc-ent">
+          <option value="עוסק" ${(p?.entity||'עוסק')==='עוסק'?'selected':''}>עוסק מורשה</option>
+          <option value="חברה" ${p?.entity==='חברה'?'selected':''}>חברה בע"מ</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="flabel">היקף פרויקט (₪)</label>
+        <input class="fi" id="fc-scope" type="number" value="${p?.scope_amount||''}" placeholder="0" oninput="calcAmt()">
+      </div>
+      <div class="fg">
+        <label class="flabel">אחוז פיקוח (%)</label>
+        <input class="fi" id="fc-pct" type="number" step="0.5" value="${p?.supervision_pct||''}" placeholder="4.5" oninput="calcAmt()">
+      </div>
+      <div class="fg">
+        <label class="flabel">סכום פיקוח (₪)</label>
+        <input class="fi" id="fc-amt" type="number" value="${p?.supervision_amount||''}" placeholder="חושב אוטומטית">
+      </div>
+      <div class="fg">
+        <label class="flabel">סטטוס</label>
+        <select class="fs" id="fc-st">${stOpts}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">הזמנת עבודה</label>
+        <input class="fi" id="fc-wo" value="${p?.work_order_number||''}" placeholder="מספר הזמנה">
+      </div>
+      <div class="fg full">
+        <label class="flabel">הערות</label>
+        <textarea class="fta" id="fc-notes">${p?.notes||''}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${isEdit?`<button class="btn btn-red" onclick="delProj('${p.id}',true)">🗑 מחק</button>`:''}
+      <button class="btn" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveProj('${pid||''}')">💾 שמור</button>
+    </div>`);
+}
+
+function buildDeptOpts(cid,selDid){
+  return (DEPTS[cid]||[]).map(d=>
+    `<option value="${d.id}" ${d.id===selDid?'selected':''}>${d.name}</option>`
+  ).join('');
+}
+function onClChange(cid){
+  document.getElementById('fc-dept').innerHTML=buildDeptOpts(cid);
+  const c=CLIENTS.find(x=>x.id===cid);
+  if(c?.entity)document.getElementById('fc-ent').value=c.entity;
+}
+function calcAmt(){
+  const s=parseFloat(document.getElementById('fc-scope').value)||0;
+  const p=parseFloat(document.getElementById('fc-pct').value)||0;
+  if(s&&p)document.getElementById('fc-amt').value=Math.round(s*p/100);
+}
+function saveProj(pid){
+  const name=document.getElementById('fc-name').value.trim();
+  if(!name){alert('נא להזין שם פרויקט');return;}
+  const d={
+    client_id:document.getElementById('fc-cl').value,
+    department_id:document.getElementById('fc-dept').value,
+    name,contact_name:document.getElementById('fc-cont').value.trim(),
+    entity:document.getElementById('fc-ent').value,
+    scope_amount:parseFloat(document.getElementById('fc-scope').value)||null,
+    supervision_pct:parseFloat(document.getElementById('fc-pct').value)||null,
+    supervision_amount:parseFloat(document.getElementById('fc-amt').value)||null,
+    status:document.getElementById('fc-st').value,
+    work_order_number:document.getElementById('fc-wo').value.trim(),
+    notes:document.getElementById('fc-notes').value.trim(),
+    updated_at:new Date().toISOString(),
+  };
+  if(pid){const i=S.projects.findIndex(p=>p.id===pid);if(i>=0)S.projects[i]={...S.projects[i],...d};}
+  else S.projects.push({id:uid(),created_at:new Date().toISOString(),...d});
+  LS.saveP();closeModal();nav(S.view);
+}
+function delProj(pid,fromModal){
+  const p=S.projects.find(x=>x.id===pid);if(!p)return;
+  if(!confirm(`למחוק "${p.name}"?\nהפעולה לא ניתנת לביטול.`))return;
+  S.projects=S.projects.filter(x=>x.id!==pid);
+  LS.saveP();closeModal();nav('projects');
+}
+
+/* ═══════════════════════════════════════
+   STATUS MODAL
+═══════════════════════════════════════ */
+function openStatusModal(pid){
+  const p=S.projects.find(x=>x.id===pid);if(!p)return;
+  const opts=Object.entries(STATUSES).map(([k,v])=>
+    `<div class="status-opt ${p.status===k?'sel':''}"
+      style="color:${v.color};background:${v.bg};"
+      onclick="setStatus('${pid}','${k}')">
+      ${v.label}
+    </div>`).join('');
+  modal(`
+    <div class="modal-hdr">
+      <span class="modal-title">עדכון סטטוס — ${p.name}</span>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="status-grid">${opts}</div>
+    <div style="padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+      <span style="font-size:12px;color:var(--muted);">נוכחי: <strong>${STATUSES[p.status]?.label}</strong></span>
+      <button class="btn" onclick="closeModal()">סגור</button>
+    </div>`);
+}
+function setStatus(pid,s){
+  const i=S.projects.findIndex(p=>p.id===pid);
+  if(i>=0){S.projects[i].status=s;S.projects[i].updated_at=new Date().toISOString();}
+  LS.saveP();closeModal();nav(S.view);
+}
+
+/* ═══════════════════════════════════════
+   INVOICE MODAL
+═══════════════════════════════════════ */
+function openInvModal(iid,prefillPid){
+  const inv=iid?S.invoices.find(x=>x.id===iid):null;
+  const isEdit=!!inv;
+  const pOpts=S.projects.map(p=>{
+    const c=cl(p.client_id);
+    return`<option value="${p.id}" ${(inv?.project_id||prefillPid)===p.id?'selected':''}>${p.name} (${c.name||''})</option>`;
+  }).join('');
+  const tOpts=INV_TYPES.map(t=>`<option value="${t}" ${inv?.invoice_type===t?'selected':''}>${t}</option>`).join('');
+  const stOpts=Object.entries(INV_ST).map(([k,v])=>`<option value="${k}" ${(inv?.status||'draft')===k?'selected':''}>${v.label}</option>`).join('');
+
+  modal(`
+    <div class="modal-hdr">
+      <span class="modal-title">${isEdit?'עריכת חשבונית':'חשבונית חדשה'}</span>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="fgrid">
+      <div class="fg full">
+        <label class="flabel">פרויקט</label>
+        <select class="fs" id="ic-proj">${pOpts||'<option>אין פרויקטים — הוסף קודם</option>'}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">מספר חשבונית</label>
+        <input class="fi" id="ic-num" value="${inv?.invoice_number||''}" placeholder="90750">
+      </div>
+      <div class="fg">
+        <label class="flabel">סוג</label>
+        <select class="fs" id="ic-type">${tOpts}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">סכום (₪)</label>
+        <input class="fi" id="ic-amt" type="number" value="${inv?.amount||''}">
+      </div>
+      <div class="fg">
+        <label class="flabel">ישות</label>
+        <select class="fs" id="ic-ent">
+          <option value="עוסק" ${(inv?.entity||'עוסק')==='עוסק'?'selected':''}>עוסק מורשה</option>
+          <option value="חברה" ${inv?.entity==='חברה'?'selected':''}>חברה בע"מ</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="flabel">תאריך שליחה</label>
+        <input class="fi" id="ic-date" type="date" value="${inv?.date_sent||''}">
+      </div>
+      <div class="fg">
+        <label class="flabel">סטטוס תשלום</label>
+        <select class="fs" id="ic-st">${stOpts}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">תאריך תשלום</label>
+        <input class="fi" id="ic-paid" type="date" value="${inv?.date_paid||''}">
+      </div>
+      <div class="fg full">
+        <label class="flabel">הערות</label>
+        <textarea class="fta" id="ic-notes">${inv?.notes||''}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${isEdit?`<button class="btn btn-red" onclick="delInv('${inv.id}',true)">🗑 מחק</button>`:''}
+      <button class="btn" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveInv('${iid||''}')">💾 שמור</button>
+    </div>`);
+}
+
+function saveInv(iid){
+  const d={
+    project_id:document.getElementById('ic-proj').value,
+    invoice_number:document.getElementById('ic-num').value.trim(),
+    invoice_type:document.getElementById('ic-type').value,
+    amount:parseFloat(document.getElementById('ic-amt').value)||null,
+    entity:document.getElementById('ic-ent').value,
+    date_sent:document.getElementById('ic-date').value||null,
+    date_paid:document.getElementById('ic-paid').value||null,
+    status:document.getElementById('ic-st').value,
+    notes:document.getElementById('ic-notes').value.trim(),
+    updated_at:new Date().toISOString(),
+  };
+  if(iid){const i=S.invoices.findIndex(x=>x.id===iid);if(i>=0)S.invoices[i]={...S.invoices[i],...d};}
+  else S.invoices.push({id:uid(),created_at:new Date().toISOString(),...d});
+  LS.saveI();closeModal();nav(S.view);
+}
+function delInv(iid,fromModal){
+  if(!confirm('למחוק חשבונית זו?'))return;
+  S.invoices=S.invoices.filter(x=>x.id!==iid);
+  LS.saveI();closeModal();nav(S.view);
+}
+
+/* ═══════════════════════════════════════
+   PROJECT INVOICES VIEW
+═══════════════════════════════════════ */
+function openProjInvs(pid){
+  const p=S.projects.find(x=>x.id===pid);if(!p)return;
+  const invs=projInvs(pid);
+  const rows=invs.map(inv=>{
+    const s=ist(inv.status);
+    return`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <span style="font-weight:600;min-width:70px;">${inv.invoice_number||'—'}</span>
+      <span style="color:var(--muted);font-size:12px;">${inv.invoice_type||'—'}</span>
+      <span class="badge ${inv.entity==='חברה'?'badge-chevra':'badge-osek'}">${inv.entity||'עוסק'}</span>
+      <span style="font-weight:600;color:var(--green);min-width:80px;">${fc(inv.amount)}</span>
+      <span style="color:var(--muted);font-size:12px;">${fd(inv.date_sent)}</span>
+      <span class="pill" style="color:${s.color};background:${s.bg};font-size:11px;">${s.label}</span>
+      <button class="btn btn-sm btn-ghost" style="margin-right:auto;" onclick="closeModal();openInvModal('${inv.id}')">✏️</button>
+    </div>`;
+  }).join('');
+  modal(`
+    <div class="modal-hdr">
+      <span class="modal-title">חשבוניות — ${p.name}</span>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div>${rows||'<div style="padding:20px 0;color:var(--hint);text-align:center;">אין חשבוניות לפרויקט זה</div>'}</div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal();openInvModal(null,'${pid}')">+ חשבונית חדשה</button>
+    </div>`);
+}
+
+/* ═══════════════════════════════════════
+   EMPLOYEE MODAL
+═══════════════════════════════════════ */
+function openEmpModal(eid){
+  const e=eid?S.employees.find(x=>x.id===eid):null;
+  const isEdit=!!e;
+  const empClients=CLIENTS.filter(c=>(DEPTS[c.id]||[]).some(d=>d.has_emp));
+  const clOpts=empClients.map(c=>`<option value="${c.id}" ${e?.client_id===c.id?'selected':''}>${c.name}</option>`).join('');
+  const initCl=e?.client_id||'jlm';
+  const empDOpts=buildEmpDeptOpts(initCl,e?.department_id);
+
+  modal(`
+    <div class="modal-hdr">
+      <span class="modal-title">${isEdit?'עריכת עובד':'עובד חדש'}</span>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="fgrid">
+      <div class="fg full">
+        <label class="flabel">שם העובד *</label>
+        <input class="fi" id="ec-name" value="${e?.name||''}" placeholder="שם מלא">
+      </div>
+      <div class="fg">
+        <label class="flabel">לקוח (מקום עבודה)</label>
+        <select class="fs" id="ec-cl" onchange="onEmpClChange(this.value)">${clOpts}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">מחלקה</label>
+        <select class="fs" id="ec-dept">${empDOpts}</select>
+      </div>
+      <div class="fg">
+        <label class="flabel">תעריף לשעה (₪)</label>
+        <input class="fi" id="ec-rate" type="number" value="${e?.hourly_rate||''}">
+      </div>
+      <div class="fg">
+        <label class="flabel">שעות ממוצע / חודש</label>
+        <input class="fi" id="ec-hrs" type="number" value="${e?.monthly_hours||''}">
+      </div>
+      <div class="fg">
+        <label class="flabel">עלות מעסיק / חודש (₪)</label>
+        <input class="fi" id="ec-empcost" type="number" value="${e?.employer_cost||''}" placeholder="ממייל רוה"ח">
+      </div>
+      <div class="fg">
+        <label class="flabel">עלות רכב / חודש (₪)</label>
+        <input class="fi" id="ec-car" type="number" value="${e?.car_cost_monthly||''}">
+      </div>
+      <div class="fg">
+        <label class="flabel">יש רכב?</label>
+        <select class="fs" id="ec-hascar">
+          <option value="0" ${!e?.has_car?'selected':''}>לא</option>
+          <option value="1" ${e?.has_car?'selected':''}>כן 🚗</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${isEdit?`<button class="btn btn-red" onclick="delEmp('${e.id}')">🗑 מחק</button>`:''}
+      <button class="btn" onclick="closeModal()">ביטול</button>
+      <button class="btn btn-primary" onclick="saveEmp('${eid||''}')">💾 שמור</button>
+    </div>`);
+}
+function buildEmpDeptOpts(cid,sel){
+  return(DEPTS[cid]||[]).filter(d=>d.has_emp).map(d=>
+    `<option value="${d.id}" ${d.id===sel?'selected':''}>${d.name}</option>`
+  ).join('');
+}
+function onEmpClChange(cid){
+  document.getElementById('ec-dept').innerHTML=buildEmpDeptOpts(cid);
+}
+function saveEmp(eid){
+  const name=document.getElementById('ec-name').value.trim();
+  if(!name){alert('נא להזין שם עובד');return;}
+  const d={
+    name,
+    client_id:document.getElementById('ec-cl').value,
+    department_id:document.getElementById('ec-dept').value,
+    hourly_rate:parseFloat(document.getElementById('ec-rate').value)||null,
+    monthly_hours:parseFloat(document.getElementById('ec-hrs').value)||null,
+    employer_cost:parseFloat(document.getElementById('ec-empcost').value)||null,
+    car_cost_monthly:parseFloat(document.getElementById('ec-car').value)||null,
+    has_car:document.getElementById('ec-hascar').value==='1',
+  };
+  if(eid){const i=S.employees.findIndex(e=>e.id===eid);if(i>=0)S.employees[i]={...S.employees[i],...d};}
+  else S.employees.push({id:uid(),created_at:new Date().toISOString(),...d});
+  LS.saveE();closeModal();nav(S.view);
+}
+function delEmp(eid){
+  if(!confirm('למחוק עובד זה?'))return;
+  S.employees=S.employees.filter(e=>e.id!==eid);
+  LS.saveE();closeModal();nav('employees');
+}
+
+/* ═══════════════════════════════════════
+   MODAL UTILS
+═══════════════════════════════════════ */
+function modal(html){
+  document.getElementById('modal').innerHTML=html;
+  document.getElementById('modal-bg').classList.add('open');
+}
+function closeModal(){document.getElementById('modal-bg').classList.remove('open');}
+function bgClose(e){if(e.target===document.getElementById('modal-bg'))closeModal();}
+
+/* ═══════════════════════════════════════
+   FIX: totalAmt is also a local var name
+═══════════════════════════════════════ */
+function totalAmt(arr,field){return arr.reduce((s,x)=>s+(x[field]||0),0);}
+
+/* ═══════════════════════════════════════
+   INIT
+═══════════════════════════════════════ */
+LS.load();
+nav('dashboard');
+</script>
+</body>
+</html>
