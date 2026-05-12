@@ -152,7 +152,7 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
       <input id="gsrch" type="text" placeholder="🔍 שם פרויקט / מספר הזמנה / חשבונית..." autocomplete="off" oninput="doSearch(this.value)" onblur="setTimeout(closeSearch,200)">
       <div id="srch-res"></div>
     </div>
-    <div id="vact"></div>
+    <span id="sync-badge" style="font-size:11px;color:#888">☁️ טוען...</span><div id="vact"></div>
   </div>
   <div id="view"></div>
 </div>
@@ -166,10 +166,43 @@ var IT=['הצעת מחיר','חשבון עסקה','חשבונית מס','קבל�
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 var D={view:'dashboard',projects:[],invoices:[],employees:[],f:{cl:'',st:'',en:'',yr:'',q:''}};
-function load(){try{D.projects=JSON.parse(localStorage.getItem('az_p')||'[]');}catch(e){D.projects=[];}try{D.invoices=JSON.parse(localStorage.getItem('az_i')||'[]');}catch(e){D.invoices=[];}try{D.employees=JSON.parse(localStorage.getItem('az_e')||'[]');}catch(e){D.employees=[];}}
+var SB_URL='https://kwmldvcsucbuvsjsiuaq.supabase.co';
+var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8';
+function sbFetch(method,table,body,id){
+  var url=SB_URL+'/rest/v1/'+table;
+  if(id)url+='?id=eq.'+id;
+  var opts={method:method,headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':method==='POST'?'return=representation':'return=minimal'}};
+  if(body)opts.body=JSON.stringify(body);
+  return fetch(url,opts).then(function(r){return r.ok?r.json().catch(function(){return[];}):[]}).catch(function(){return[];});
+}
+function sbGet(table){
+  return fetch(SB_URL+'/rest/v1/'+table+'?order=created_at',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}}).then(function(r){return r.json();}).catch(function(){return[];});
+}
+function sbUpsert(table,data){
+  return fetch(SB_URL+'/rest/v1/'+table,{method:'POST',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(data)}).catch(function(){});
+}
+function sbDelete(table,id){
+  return fetch(SB_URL+'/rest/v1/'+table+'?id=eq.'+id,{method:'DELETE',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}}).catch(function(){});
+}
+function load(){
+  D.synced=false;
+  try{D.projects=JSON.parse(localStorage.getItem('az_p')||'[]');}catch(e){D.projects=[];}
+  try{D.invoices=JSON.parse(localStorage.getItem('az_i')||'[]');}catch(e){D.invoices=[];}
+  try{D.employees=JSON.parse(localStorage.getItem('az_e')||'[]');}catch(e){D.employees=[];}
+  // Sync from Supabase
+  Promise.all([sbGet('projects'),sbGet('invoices'),sbGet('employees')]).then(function(results){
+    if(results[0]&&results[0].length>=0){D.projects=results[0];localStorage.setItem('az_p',JSON.stringify(D.projects));}
+    if(results[1]&&results[1].length>=0){D.invoices=results[1];localStorage.setItem('az_i',JSON.stringify(D.invoices));}
+    if(results[2]&&results[2].length>=0){D.employees=results[2];localStorage.setItem('az_e',JSON.stringify(D.employees));}
+    D.synced=true;go(D.view);showSync(true);
+  }).catch(function(){showSync(false);});
+}
+function showSync(ok){var el=document.getElementById('sync-badge');if(el){el.textContent=ok?'☁️ מסונכרן':'⚠️ לא מחובר';el.style.color=ok?'#3a6b10':'#834e0a';}}
 function svP(){localStorage.setItem('az_p',JSON.stringify(D.projects));}
 function svI(){localStorage.setItem('az_i',JSON.stringify(D.invoices));}
 function svE(){localStorage.setItem('az_e',JSON.stringify(D.employees));}
+function cloudSave(table,data){sbUpsert(table,data);}
+function cloudDel(table,id){sbDelete(table,id);}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function fc(n){if(n===null||n===undefined||n==='')return'—';var x=Math.round(Number(n));if(isNaN(x))return'—';var s=String(x),r='';for(var i=s.length-1,c=0;i>=0;i--,c++){if(c>0&&c%3===0)r=','+r;r=s[i]+r;}return'\u20AA'+r;}
 function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString();}catch(ex){return d;}}
@@ -403,12 +436,12 @@ function svP2(pid){
   else{data.contract_start=document.getElementById('p-cs').value||null;data.contract_end=document.getElementById('p-ce').value||null;data.contract_hourly_rate=parseFloat(document.getElementById('p-chr').value)||null;data.contract_avg_hours=parseFloat(document.getElementById('p-cah').value)||null;data.supervision_amount=null;}
   if(pid){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i]=Object.assign({},D.projects[i],data);break;}}
   else{data.id=uid();data.created_at=new Date().toISOString();D.projects.push(data);}
-  svP();closeM();go(D.view);
+  svP();var _pd=pid?D.projects.filter(function(x){return x.id===pid;})[0]:D.projects[D.projects.length-1];if(_pd)cloudSave('projects',_pd);closeM();go(D.view);
 }
-function delP(pid,fromM){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p||!confirm('למחוק "'+p.name+'"?'))return;D.projects=D.projects.filter(function(x){return x.id!==pid;});svP();closeM();go('projects');}
+function delP(pid,fromM){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p||!confirm('למחוק "'+p.name+'"?'))return;D.projects=D.projects.filter(function(x){return x.id!==pid;});svP();cloudDel('projects',pid);closeM();go('projects');}
 /* ── STATUS MODAL ── */
 function openSt(pid){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p)return;var h='<div class="mhdr"><span class="mtitle">סטטוס — '+ex(p.name)+'</span><button class="mx" onclick="closeM()">✕</button></div><div class="stg">';for(var k in STS){var s=STS[k];h+='<div class="sto'+(p.status===k?' sel':'')+'" style="color:'+s.c+';background:'+s.bg+';" onclick="setSt(\''+pid+'\',\''+k+'\')">'+s.l+'</div>';}h+='</div><div style="padding-top:11px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span style="font-size:12px;color:#888">נוכחי: <strong>'+gs(p.status).l+'</strong></span><button class="btn" onclick="closeM()">סגור</button></div>';showM(h);}
-function setSt(pid,ns){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i].status=ns;D.projects[i].updated_at=new Date().toISOString();break;}svP();closeM();go(D.view);}
+function setSt(pid,ns){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i].status=ns;D.projects[i].updated_at=new Date().toISOString();break;}svP();var _stP=D.projects.filter(function(x){return x.id===pid;})[0];if(_stP)cloudSave('projects',_stP);closeM();go(D.view);}
 /* ── INVOICE MODAL ── */
 function onInvTypeChange(){
   var tp=document.getElementById('i-tp').value;
@@ -455,9 +488,9 @@ function svI2(iid){
   var clEl=document.getElementById('i-cl');data.closes_id=clEl?clEl.value||null:null;
   if(iid){for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===iid){D.invoices[i]=Object.assign({},D.invoices[i],data);break;}}
   else{data.id=uid();data.created_at=new Date().toISOString();D.invoices.push(data);}
-  svI();closeM();go(D.view);
+  svI();var _id2=iid?D.invoices.filter(function(x){return x.id===iid;})[0]:D.invoices[D.invoices.length-1];if(_id2)cloudSave('invoices',_id2);closeM();go(D.view);
 }
-function delI(iid,fromM){if(!confirm('למחוק חשבונית זו?'))return;D.invoices=D.invoices.filter(function(x){return x.id!==iid;});svI();closeM();go(D.view);}
+function delI(iid,fromM){if(!confirm('למחוק חשבונית זו?'))return;D.invoices=D.invoices.filter(function(x){return x.id!==iid;});svI();cloudDel('invoices',iid);closeM();go(D.view);}
 /* ── PROJECT INVOICES POPUP ── */
 function openPI(pid){
   var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}
@@ -501,8 +534,8 @@ function openPI(pid){
 function eDOpts(cid,selId){var a=DP[cid]||[],r='';for(var i=0;i<a.length;i++)if(a[i].emp)r+='<option value="'+a[i].id+'"'+(a[i].id===selId?' selected':'')+'>'+ex(a[i].name)+'</option>';return r;}
 function onEC(cid){document.getElementById('e-d').innerHTML=eDOpts(cid,'');}
 function openE(eid){var em=null;if(eid)for(var i=0;i<D.employees.length;i++)if(D.employees[i].id===eid){em=D.employees[i];break;}var empCL=[];for(var i=0;i<CL.length;i++){var a=DP[CL[i].id]||[];for(var j=0;j<a.length;j++)if(a[j].emp){empCL.push(CL[i]);break;}}var clO='';for(var i=0;i<empCL.length;i++)clO+='<option value="'+empCL[i].id+'"'+(em&&em.client_id===empCL[i].id?' selected':'')+'>'+ex(empCL[i].name)+'</option>';var iCl=em?em.client_id:'jlm';var h='<div class="mhdr"><span class="mtitle">'+(em?'עריכת עובד':'עובד חדש')+'</span><button class="mx" onclick="closeM()">✕</button></div><div class="fg2"><div class="fg w2"><label class="flbl">שם העובד *</label><input class="fi" id="e-nm" value="'+ex(em?em.name||'':'')+'"></div><div class="fg"><label class="flbl">לקוח (מקום עבודה)</label><select class="fs" id="e-cl" onchange="onEC(this.value)">'+clO+'</select></div><div class="fg"><label class="flbl">מחלקה</label><select class="fs" id="e-d">'+eDOpts(iCl,em?em.department_id:'')+'</select></div><div class="fg"><label class="flbl">תעריף לשעה (₪)</label><input class="fi" id="e-rt" type="number" value="'+(em?em.hourly_rate||'':'')+'"></div><div class="fg"><label class="flbl">שעות ממוצע / חודש</label><input class="fi" id="e-hr" type="number" value="'+(em?em.monthly_hours||'':'')+'"></div><div class="fg"><label class="flbl">עלות מעסיק / חודש (₪)</label><input class="fi" id="e-ec" type="number" value="'+(em?em.employer_cost||'':'')+'"></div><div class="fg"><label class="flbl">עלות רכב / חודש (₪)</label><input class="fi" id="e-cr" type="number" value="'+(em?em.car_cost_monthly||'':'')+'"></div><div class="fg"><label class="flbl">יש רכב?</label><select class="fs" id="e-hc"><option value="0"'+(!em||!em.has_car?' selected':'')+'>לא</option><option value="1"'+(em&&em.has_car?' selected':'')+'>כן 🚗</option></select></div></div><div class="mftr">'+(em?'<button class="btn btn-red" onclick="delE(\''+eid+'\')">🗑 מחק</button>':'')+'<button class="btn" onclick="closeM()">ביטול</button><button class="btn btn-blue" onclick="svE2(\''+( eid||'')+'\')">💾 שמור</button></div>';showM(h);}
-function svE2(eid){var nm=document.getElementById('e-nm').value.trim();if(!nm){alert('נא להזין שם עובד');return;}var data={name:nm,client_id:document.getElementById('e-cl').value,department_id:document.getElementById('e-d').value,hourly_rate:parseFloat(document.getElementById('e-rt').value)||null,monthly_hours:parseFloat(document.getElementById('e-hr').value)||null,employer_cost:parseFloat(document.getElementById('e-ec').value)||null,car_cost_monthly:parseFloat(document.getElementById('e-cr').value)||null,has_car:document.getElementById('e-hc').value==='1'};if(eid){for(var i=0;i<D.employees.length;i++)if(D.employees[i].id===eid){D.employees[i]=Object.assign({},D.employees[i],data);break;}}else{data.id=uid();data.created_at=new Date().toISOString();D.employees.push(data);}svE();closeM();go(D.view);}
-function delE(eid){if(!confirm('למחוק עובד זה?'))return;D.employees=D.employees.filter(function(e){return e.id!==eid;});svE();closeM();go('employees');}
+function svE2(eid){var nm=document.getElementById('e-nm').value.trim();if(!nm){alert('נא להזין שם עובד');return;}var data={name:nm,client_id:document.getElementById('e-cl').value,department_id:document.getElementById('e-d').value,hourly_rate:parseFloat(document.getElementById('e-rt').value)||null,monthly_hours:parseFloat(document.getElementById('e-hr').value)||null,employer_cost:parseFloat(document.getElementById('e-ec').value)||null,car_cost_monthly:parseFloat(document.getElementById('e-cr').value)||null,has_car:document.getElementById('e-hc').value==='1'};if(eid){for(var i=0;i<D.employees.length;i++)if(D.employees[i].id===eid){D.employees[i]=Object.assign({},D.employees[i],data);break;}}else{data.id=uid();data.created_at=new Date().toISOString();D.employees.push(data);}svE();var _eid2=eid?D.employees.filter(function(x){return x.id===eid;})[0]:D.employees[D.employees.length-1];if(_eid2)cloudSave('employees',_eid2);closeM();go(D.view);}
+function delE(eid){if(!confirm('למחוק עובד זה?'))return;D.employees=D.employees.filter(function(e){return e.id!==eid;});svE();cloudDel('employees',eid);closeM();go('employees');}
 load();go('dashboard');
 </script>
 </body>
