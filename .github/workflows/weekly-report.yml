@@ -1,0 +1,19 @@
+name: Weekly Report - Sunday 9am
+
+on:
+  schedule:
+    - cron: '0 7 * * 0'  # כל ראשון 9:00 ישראל (UTC+2 = 7:00 UTC)
+  workflow_dispatch:       # אפשר להפעיל ידנית לבדיקה
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Weekly Report
+        run: |
+          curl -X POST \
+            'https://kwmldvcsucbuvsjsiuaq.supabase.co/functions/v1/weekly-report' \
+            -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8' \
+            -H 'Content-Type: application/json' \
+            --max-time 60 \
+            -w "\nStatus: %{http_code}\n"
