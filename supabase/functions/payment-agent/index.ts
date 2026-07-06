@@ -11,6 +11,16 @@ const NOTIFY_EMAIL = Deno.env.get("NOTIFY_EMAIL") || "moshe@arazim-eng.co.il";
 const MAILBOXES = ["moshe@arazim-eng.co.il", "office@arazim-eng.co.il"];
 const PAYMENT_SENDERS = ["jersupplier@jerusalem.muni.il", "no-replay@ladpc.co.il"];
 const EZCOUNT_SENDER = "noreply@ezcount.co.il";
+// How far back to scan. Combined with the processed_emails table this makes the
+// agent independent of read/unread state (the old isRead filter meant any mail a
+// human opened first was silently skipped forever).
+const LOOKBACK_DAYS = 7;
+
+const sbHeaders = {
+  "apikey": SUPABASE_KEY,
+  "Authorization": `Bearer ${SUPABASE_KEY}`,
+  "Content-Type": "application/json",
+};
 
 async function getAzureToken(): Promise<string> {
   const res = await fetch(
@@ -27,19 +37,72 @@ async function getAzureToken(): Promise<string> {
     }
   );
   const data = await res.json();
+  if (!data.access_token) {
+    throw new Error(`Azure token failed (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
+  }
   return data.access_token;
 }
 
-async function getEmails(token: string, mailbox: string, sender: string, folder = "inbox") {
-  const folderPath = folder === "junk" ? "junkemail" : "inbox";
-  const url = `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/${folderPath}/messages?` +
-    `$filter=from/emailAddress/address eq '${sender}' and isRead eq false` +
-    `&$select=id,subject,from,receivedDateTime,body,hasAttachments` +
-    `&$top=20&$orderby=receivedDateTime desc`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.value || [];
+// Fetch recent messages from a folder and filter by sender client-side.
+// A combined $filter on from + isRead with $orderby is rejected by Graph as an
+// inefficient filter — that silent failure is why the agent never processed anything.
+// Scan the WHOLE mailbox (all folders), not just Inbox — municipality mails get
+// moved to subfolders by rules/the secretary and must still be picked up.
+async function getEmails(token: string, mailbox: string, results: string[]) {
+  const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  let url: string | null = `https://graph.microsoft.com/v1.0/users/${mailbox}/messages?` +
+    `$filter=receivedDateTime ge ${since}` +
+    `&$select=id,internetMessageId,subject,from,receivedDateTime,body,hasAttachments` +
+    `&$orderby=receivedDateTime desc&$top=100`;
+  const all: any[] = [];
+  // paginate — a busy mailbox has far more than one page per week
+  for (let page = 0; url && page < 15; page++) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      const body = await res.text();
+      results.push(`❌ Graph ${mailbox}: ${res.status} ${body.slice(0, 200)}`);
+      break;
+    }
+    const data = await res.json();
+    all.push(...(data.value || []));
+    url = data["@odata.nextLink"] || null;
+  }
+  return all;
+}
+
+function fromAddress(email: any): string {
+  return (email.from?.emailAddress?.address || "").toLowerCase();
+}
+
+// message key that is stable across mailboxes (same mail delivered to both
+// moshe@ and office@ carries the same internetMessageId → processed once)
+function messageKey(email: any): string {
+  return email.internetMessageId || email.id;
+}
+
+async function getProcessedIds(): Promise<Set<string>> {
+  const since = new Date(Date.now() - (LOOKBACK_DAYS + 2) * 24 * 60 * 60 * 1000).toISOString();
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/processed_emails?select=message_id&processed_at=gte.${since}`,
+    { headers: sbHeaders }
+  );
+  if (!res.ok) return new Set();
+  const rows = await res.json();
+  return new Set(rows.map((r: any) => r.message_id));
+}
+
+async function markProcessed(email: any, mailbox: string, outcome: string) {
+  await fetch(`${SUPABASE_URL}/rest/v1/processed_emails`, {
+    method: "POST",
+    headers: { ...sbHeaders, "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({
+      message_id: messageKey(email),
+      mailbox,
+      sender: fromAddress(email),
+      subject: (email.subject || "").slice(0, 300),
+      outcome,
+    }),
+  }).catch(() => {});
 }
 
 async function getAttachments(token: string, mailbox: string, messageId: string) {
@@ -51,17 +114,6 @@ async function getAttachments(token: string, mailbox: string, messageId: string)
   const data = await res.json();
   return (data.value || []).filter((a: any) =>
     a.contentType === "application/pdf" || a.name?.toLowerCase().endsWith(".pdf")
-  );
-}
-
-async function markAsRead(token: string, mailbox: string, messageId: string) {
-  await fetch(
-    `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/${messageId}`,
-    {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ isRead: true })
-    }
   );
 }
 
@@ -82,17 +134,36 @@ function extractInvoiceFromSubject(subject: string): { number: string; type: str
   return null;
 }
 
+// The EZcount link is wrapped in an AWS-tracking redirect with percent-encoding,
+// and the plain /copy?email=... endpoint returns an HTML redirect page.
+// Decode the body, pull the document UUID, and hit /copy?nc=1 which serves the PDF.
 function extractPDFLink(body: string): string | null {
-  const match = body.match(/https:\/\/files\.ezcount\.co\.il\/front\/documents\/get\/[^\s"'<>&]+/);
-  return match ? match[0] : null;
+  const decoded = body.replace(/%2F/gi, "/").replace(/%3A/gi, ":").replace(/%3F/gi, "?").replace(/%3D/gi, "=").replace(/%26/gi, "&");
+  const match = decoded.match(/files\.ezcount\.co\.il\/front\/documents\/get\/([a-f0-9-]{20,})/i);
+  return match ? `https://files.ezcount.co.il/front/documents/get/${match[1]}/copy?nc=1` : null;
 }
 
 async function downloadPDF(url: string): Promise<Uint8Array | null> {
   try {
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
     if (!res.ok) return null;
-    return new Uint8Array(await res.arrayBuffer());
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // must actually be a PDF (%PDF) — the endpoint sometimes serves HTML
+    if (bytes.length < 4 || bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46) return null;
+    return bytes;
   } catch { return null; }
+}
+
+function isPdf(bytes: Uint8Array | null): boolean {
+  return !!bytes && bytes.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
+
+function toB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(bin);
 }
 
 async function uploadToStorage(invoiceId: string, pdfBytes: Uint8Array): Promise<string | null> {
@@ -108,57 +179,133 @@ async function uploadToStorage(invoiceId: string, pdfBytes: Uint8Array): Promise
     body: pdfBytes
   });
   if (!res.ok) return null;
-  return `${SUPABASE_URL}/storage/v1/object/public/invoices/${path}`;
+  // store the object path; the app signs URLs on demand (bucket is private)
+  return path;
 }
 
 async function getInvoices() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/invoices?select=*`, {
-    headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
-  });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/invoices?select=*`, { headers: sbHeaders });
   return await res.json();
 }
 
-async function updateInvoicePDF(invoiceId: string, fileUrl: string) {
+async function updateInvoicePDF(invoiceId: string, filePath: string) {
   await fetch(`${SUPABASE_URL}/rest/v1/invoices?id=eq.${invoiceId}`, {
     method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json", "Prefer": "return=minimal"
-    },
-    body: JSON.stringify({ file_url: fileUrl, updated_at: new Date().toISOString() })
+    headers: { ...sbHeaders, "Prefer": "return=minimal" },
+    body: JSON.stringify({ file_url: filePath, updated_at: new Date().toISOString() })
   });
 }
 
-async function updateInvoiceStatus(invoiceId: string, paymentDate: string) {
+async function updateInvoiceStatus(invoiceId: string, paymentDate: string | null) {
   await fetch(`${SUPABASE_URL}/rest/v1/invoices?id=eq.${invoiceId}`, {
     method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`,
-      "Content-Type": "application/json", "Prefer": "return=minimal"
-    },
-    body: JSON.stringify({ status: "paid", date_paid: paymentDate, updated_at: new Date().toISOString() })
+    headers: { ...sbHeaders, "Prefer": "return=minimal" },
+    body: JSON.stringify({
+      status: "paid",
+      date_paid: paymentDate || new Date().toISOString().slice(0, 10),
+      updated_at: new Date().toISOString()
+    })
   });
 }
 
-async function extractPaymentInfo(pdfBase64: string, emailBody: string): Promise<any> {
+const PAYMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    invoices: {
+      type: "array",
+      description: "פירוט החשבוניות ששולמו לפי המסמך",
+      items: {
+        type: "object",
+        properties: {
+          number: { type: "string", description: "מספר החשבונית" },
+          amount: { type: ["number", "null"], description: "הסכום ששולם עבור חשבונית זו" },
+        },
+        required: ["number", "amount"],
+        additionalProperties: false,
+      },
+    },
+    total_amount: { type: ["number", "null"], description: "הסכום הכולל ששולם" },
+    payment_date: { type: ["string", "null"], description: "תאריך התשלום YYYY-MM-DD" },
+    payer: { type: ["string", "null"], description: "שם המשלם (עירייה/גוף)" },
+  },
+  required: ["invoices", "total_amount", "payment_date", "payer"],
+  additionalProperties: false,
+};
+
+const INVOICE_SCHEMA = {
+  type: "object",
+  properties: {
+    amount: { type: ["number", "null"], description: "סכום החשבונית לפני מע\"מ" },
+    client_name: { type: ["string", "null"], description: "שם הלקוח שאליו הופנתה החשבונית" },
+    date: { type: ["string", "null"], description: "תאריך החשבונית YYYY-MM-DD" },
+  },
+  required: ["amount", "client_name", "date"],
+  additionalProperties: false,
+};
+
+// EZcount greeting → client_id in the app
+const CLIENT_MATCHERS: [string, string][] = [
+  ["ירושלים", "jlm"],
+  ["ראשון לציון", "rl"],
+  ["בית שמש", "bs"],
+  ["גוש עציון", "ge"],
+  ["אפרת", "ef"],
+  ["נס ציונה", "nc"],
+  ["קרית גת", "kg"],
+];
+
+function guessClientId(text: string): string | null {
+  for (const [needle, id] of CLIENT_MATCHERS) {
+    if (text.includes(needle)) return id;
+  }
+  return null;
+}
+
+function uid(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+async function createInvoice(row: Record<string, unknown>) {
+  await fetch(`${SUPABASE_URL}/rest/v1/invoices`, {
+    method: "POST",
+    headers: { ...sbHeaders, "Prefer": "return=minimal" },
+    body: JSON.stringify(row),
+  });
+}
+
+async function askClaude(schema: object, content: any[], results: string[]): Promise<any> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-opus-4-8",
+      max_tokens: 2000,
+      thinking: { type: "adaptive" },
+      output_config: { format: { type: "json_schema", schema } },
+      messages: [{ role: "user", content }]
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    results.push(`❌ Anthropic API ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+    return null;
+  }
+  try {
+    const text = (data.content || []).find((b: any) => b.type === "text")?.text || "{}";
+    return JSON.parse(text);
+  } catch { return null; }
+}
+
+async function extractPaymentInfo(pdfBase64: string, emailBody: string, results: string[]): Promise<any> {
   const content: any[] = [];
   if (pdfBase64) {
     content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } });
   }
   content.push({
     type: "text",
-    text: `זהו מסמך תשלום מעירייה. חלץ ב-JSON בלבד:
-{"invoice_numbers":["מספרי חשבוניות"],"total_amount":"סכום","payment_date":"YYYY-MM-DD","payer":"שם"}
-תוכן: ${emailBody.slice(0, 500)}`
+    text: `זהו מסמך הודעת תשלום/זיכוי מעירייה לספק. חלץ את פרטי התשלום כולל פירוט לכל חשבונית.\nתוכן המייל: ${emailBody.slice(0, 800)}`
   });
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content }] })
-  });
-  const data = await res.json();
-  try { return JSON.parse((data.content?.[0]?.text || "{}").replace(/```json|```/g, "").trim()); }
-  catch { return null; }
+  return await askClaude(PAYMENT_SCHEMA, content, results);
 }
 
 async function sendNotification(token: string, subject: string, body: string) {
@@ -172,133 +319,196 @@ async function sendNotification(token: string, subject: string, body: string) {
         toRecipients: [{ emailAddress: { address: NOTIFY_EMAIL } }]
       }
     })
+  }).catch(() => {});
+}
+
+// ── EZcount: create/complete the invoice row and attach its PDF ──
+async function processEZcountEmail(token: string, mailbox: string, email: any, invoices: any[], results: string[], digest: string[]): Promise<string> {
+  const subject = email.subject || "";
+  const bodyHtml = email.body?.content || "";
+  const invInfo = extractInvoiceFromSubject(subject);
+  if (!invInfo) return "no_invoice_in_subject";
+
+  const { number: invNum, type: invType } = invInfo;
+  // הצעות מחיר וקבלות לא מנוהלות בטבלה
+  if (invType === "הצעת מחיר" || invType === "קבלה") return "skipped_type";
+
+  const matched = invoices.find((inv: any) => {
+    const n = String(inv.invoice_number || "").trim();
+    return n === invNum || n.replace(/^0+/, "") === invNum.replace(/^0+/, "");
   });
-}
+  if (matched && matched.file_url && matched.amount != null) return "complete";
 
-// ── EZcount: PDF attachment agent ──
-async function processEZcount(token: string, results: string[]) {
-  const invoices = await getInvoices();
-
-  for (const mailbox of MAILBOXES) {
-    for (const folder of ["inbox", "junk"]) {
-      const emails = await getEmails(token, mailbox, EZCOUNT_SENDER, folder);
-      if (emails.length) results.push(`EZcount ${folder} (${mailbox}): ${emails.length} מיילים`);
-
-      for (const email of emails) {
-        const subject = email.subject || "";
-        const bodyHtml = email.body?.content || "";
-        const invInfo = extractInvoiceFromSubject(subject);
-
-        if (!invInfo) {
-          await markAsRead(token, mailbox, email.id);
-          continue;
-        }
-
-        const { number: invNum, type: invType } = invInfo;
-
-        const matched = invoices.find((inv: any) => {
-          const n = String(inv.invoice_number || "").trim();
-          return n === invNum || n.replace(/^0+/, "") === invNum.replace(/^0+/, "");
-        });
-
-        let pdfUrl: string | null = null;
-
-        // Try download link
-        const pdfLink = extractPDFLink(bodyHtml);
-        if (pdfLink && matched) {
-          const bytes = await downloadPDF(pdfLink);
-          if (bytes) pdfUrl = await uploadToStorage(matched.id, bytes);
-        }
-
-        // Try attachment
-        if (!pdfUrl && matched) {
-          const atts = await getAttachments(token, mailbox, email.id);
-          if (atts.length && atts[0].contentBytes) {
-            const bytes = Uint8Array.from(atob(atts[0].contentBytes), c => c.charCodeAt(0));
-            pdfUrl = await uploadToStorage(matched.id, bytes);
-          }
-        }
-
-        if (matched && pdfUrl) {
-          await updateInvoicePDF(matched.id, pdfUrl);
-          results.push(`✅ EZcount: ${invType} ${invNum} — PDF צורף`);
-          await sendNotification(token,
-            `📎 PDF צורף אוטומטית — ${invType} ${invNum}`,
-            `${invType} מספר ${invNum} הורדה מ-EZcount וצורפה לאפליקציה אוטומטית.\n\nצפה באפליקציה: https://arazim-eng.github.io/management`
-          );
-        } else if (matched) {
-          results.push(`⚠️ EZcount: ${invNum} — PDF לא הורד`);
-        } else {
-          results.push(`❌ EZcount: ${invType} ${invNum} — לא נמצאה בטבלה`);
-          await sendNotification(token,
-            `⚠️ EZcount: חשבונית לא נמצאה בטבלה`,
-            `${invType} מספר ${invNum} התקבלה מ-EZcount אך לא נמצאה בטבלה.\n\nנושא: ${subject}\n\nבדוק ידנית באפליקציה.`
-          );
-        }
-
-        await markAsRead(token, mailbox, email.id);
-      }
+  // fetch the PDF (link in body, or attachment)
+  let pdfBytes: Uint8Array | null = null;
+  const pdfLink = extractPDFLink(bodyHtml);
+  if (pdfLink) pdfBytes = await downloadPDF(pdfLink);
+  if (!isPdf(pdfBytes) && email.hasAttachments) {
+    const atts = await getAttachments(token, mailbox, email.id);
+    if (atts.length && atts[0].contentBytes) {
+      const b = Uint8Array.from(atob(atts[0].contentBytes), c => c.charCodeAt(0));
+      if (isPdf(b)) pdfBytes = b;
     }
   }
+
+  // extract amount/client/date from the PDF when we need them
+  let extracted: any = null;
+  if (pdfBytes && (!matched || matched.amount == null)) {
+    extracted = await askClaude(INVOICE_SCHEMA, [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: toB64(pdfBytes) } },
+      { type: "text", text: `זו ${invType} שהופקה ב-EZcount. חלץ את הסכום לפני מע"מ, שם הלקוח והתאריך.` },
+    ], results);
+  }
+
+  if (!matched) {
+    const clientGuess = guessClientId(bodyHtml) || "";
+    const newId = uid();
+    const filePath = pdfBytes ? await uploadToStorage(newId, pdfBytes) : null;
+    const newRow = {
+      id: newId,
+      invoice_number: invNum,
+      invoice_type: invType,
+      amount: extracted?.amount ?? null,
+      entity: "עוסק",
+      date_sent: extracted?.date || (email.sentDateTime || "").slice(0, 10) || null,
+      status: "sent",
+      notes: `⚠️ נוצר אוטומטית מהמייל — יש לשייך לפרויקט${clientGuess ? ` (לקוח משוער: ${clientGuess})` : ""}`,
+      file_url: filePath,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await createInvoice(newRow);
+    invoices.push(newRow); // keep the in-memory list current for later emails in this run
+    results.push(`🆕 ${invType} ${invNum} נוצרה (₪${extracted?.amount ?? "?"})`);
+    digest.push(`🆕 ${invType} ${invNum} על סך ₪${extracted?.amount ?? "לא זוהה"} נוספה לטבלה — לשיוך לפרויקט`);
+    return "auto_created";
+  }
+
+  // complete an existing row: attach PDF and/or backfill a missing amount
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  let changed = false;
+  if (!matched.file_url && pdfBytes) {
+    const filePath = await uploadToStorage(matched.id, pdfBytes);
+    if (filePath) { patch.file_url = filePath; matched.file_url = filePath; changed = true; }
+  }
+  if (matched.amount == null && extracted?.amount != null) {
+    patch.amount = extracted.amount; matched.amount = extracted.amount; changed = true;
+  }
+  if (changed) {
+    await fetch(`${SUPABASE_URL}/rest/v1/invoices?id=eq.${matched.id}`, {
+      method: "PATCH",
+      headers: { ...sbHeaders, "Prefer": "return=minimal" },
+      body: JSON.stringify(patch),
+    });
+    results.push(`✅ ${invType} ${invNum} — ${patch.file_url ? "PDF צורף" : ""}${patch.amount != null ? " סכום הושלם ₪" + patch.amount : ""}`);
+    digest.push(`✅ ${invType} ${invNum} הושלמה${patch.amount != null ? ` (₪${patch.amount})` : ""}`);
+    return "completed";
+  }
+  results.push(`⚠️ ${invNum} — PDF לא הורד`);
+  return "pdf_download_failed";
 }
 
-// ── Payments: status update agent ──
-async function processPayments(token: string, results: string[]) {
-  const invoices = await getInvoices();
+// ── Municipality payment notice: mark invoices as paid ──
+async function processPaymentEmail(token: string, mailbox: string, email: any, invoices: any[], results: string[], digest: string[]): Promise<string> {
+  const body = email.body?.content || "";
+  let pdfB64 = "";
+  if (email.hasAttachments) {
+    const atts = await getAttachments(token, mailbox, email.id);
+    if (atts.length && atts[0].contentBytes) pdfB64 = atts[0].contentBytes;
+  }
+  const info = await extractPaymentInfo(pdfB64, body, results);
 
-  for (const mailbox of MAILBOXES) {
-    for (const sender of PAYMENT_SENDERS) {
-      const emails = await getEmails(token, mailbox, sender);
-      if (emails.length) results.push(`תשלום (${mailbox}): ${emails.length} מיילים`);
+  if (!info?.invoices?.length) {
+    digest.push(`⚠️ מייל תשלום מ-${fromAddress(email)} — לא זוהה מספר חשבונית, בדוק ידנית (נושא: ${email.subject})`);
+    return "no_invoice_numbers";
+  }
 
-      for (const email of emails) {
-        const atts = await getAttachments(token, mailbox, email.id);
-        const body = email.body?.content || "";
-        let info = null;
-
-        if (atts.length) info = await extractPaymentInfo(atts[0].contentBytes, body);
-        else info = await extractPaymentInfo("", body);
-
-        if (!info?.invoice_numbers?.length) {
-          await sendNotification(token, `⚠️ לא זוהה מספר חשבונית`, `מייל מ-${sender}\nנושא: ${email.subject}`);
-          await markAsRead(token, mailbox, email.id);
-          continue;
-        }
-
-        const updated: string[] = [], notFound: string[] = [];
-        for (const n of info.invoice_numbers) {
-          const m = invoices.find((inv: any) => {
-            const num = String(inv.invoice_number || "").trim();
-            const s = String(n).trim().replace(/^0+/, "");
-            return num === n || num.replace(/^0+/, "") === s || num.endsWith(s);
-          });
-          if (m) { await updateInvoiceStatus(m.id, info.payment_date); updated.push(`${n} (₪${info.total_amount})`); }
-          else notFound.push(n);
-        }
-
-        let msg = `שולם ע"י: ${info.payer || sender}\nתאריך: ${info.payment_date}\nסכום: ₪${info.total_amount}\n\n`;
-        if (updated.length) msg += `✅ עודכנו לשולם:\n${updated.join("\n")}\n\n⚠️ זכור להוציא קבלה!\n`;
-        if (notFound.length) msg += `❌ לא נמצאו:\n${notFound.join("\n")}`;
-
-        await sendNotification(token, updated.length ? `✅ תשלום התקבל` : `❌ חשבוניות לא נמצאו`, msg);
-        await markAsRead(token, mailbox, email.id);
-        results.push(`תשלום: עודכנו ${updated.length}, לא נמצאו ${notFound.length}`);
-      }
+  const updated: string[] = [], created: string[] = [];
+  for (const item of info.invoices) {
+    const n = String(item.number || "").trim();
+    if (!n) continue;
+    const s = n.replace(/^0+/, "");
+    const m = invoices.find((inv: any) => {
+      const num = String(inv.invoice_number || "").trim();
+      return num === n || num.replace(/^0+/, "") === s;
+    });
+    if (m && m.status !== "paid") {
+      await updateInvoiceStatus(m.id, info.payment_date);
+      updated.push(`${s} (₪${item.amount ?? "?"})`);
+    } else if (m) {
+      updated.push(`${s} (כבר מסומנת כשולמה)`);
+    } else {
+      // invoice was never entered — create it as paid so the books stay complete
+      const newRow = {
+        id: uid(),
+        invoice_number: s,
+        invoice_type: "חשבון עסקה",
+        amount: item.amount ?? null,
+        entity: "עוסק",
+        date_paid: info.payment_date || new Date().toISOString().slice(0, 10),
+        status: "paid",
+        notes: `⚠️ נוצר אוטומטית מהודעת תשלום של ${info.payer || "העירייה"} — יש לשייך לפרויקט`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await createInvoice(newRow);
+      invoices.push(newRow); // keep the in-memory list current for later emails in this run
+      created.push(`${s} (₪${item.amount ?? "?"})`);
     }
   }
+
+  let msg = `💰 תשלום מ-${info.payer || fromAddress(email)} בסך ₪${info.total_amount} (${info.payment_date})`;
+  if (updated.length) msg += `\n   ✅ עודכנו לשולם: ${updated.join(", ")}`;
+  if (created.length) msg += `\n   🆕 נוצרו כשולמו (לשיוך לפרויקט): ${created.join(", ")}`;
+  digest.push(msg);
+  results.push(`תשלום ${info.payer || ""}: עודכנו ${updated.length}, נוצרו ${created.length}`);
+  return `payment_u${updated.length}_c${created.length}`;
 }
 
 // ── MAIN ──
 Deno.serve(async () => {
   const results: string[] = [];
+  const digest: string[] = []; // ONE summary email per run instead of one per event
+  let hadError = false;
+  let token: string | null = null;
   try {
-    const token = await getAzureToken();
-    await processEZcount(token, results);
-    await processPayments(token, results);
+    token = await getAzureToken();
+    const [invoices, processed] = await Promise.all([getInvoices(), getProcessedIds()]);
+    const seenThisRun = new Set<string>();
+
+    for (const mailbox of MAILBOXES) {
+      const emails = await getEmails(token, mailbox, results);
+      for (const email of emails) {
+        const key = messageKey(email);
+        if (processed.has(key) || seenThisRun.has(key)) continue;
+        const sender = fromAddress(email);
+
+        let outcome: string | null = null;
+        if (sender === EZCOUNT_SENDER) {
+          outcome = await processEZcountEmail(token, mailbox, email, invoices, results, digest);
+        } else if (PAYMENT_SENDERS.includes(sender)) {
+          outcome = await processPaymentEmail(token, mailbox, email, invoices, results, digest);
+        }
+        if (outcome) {
+          seenThisRun.add(key);
+          await markProcessed(email, mailbox, outcome);
+        }
+      }
+    }
   } catch (err: any) {
+    hadError = true;
     results.push(`שגיאה: ${err.message}`);
+    digest.push(`❌ שגיאה בסוכן: ${err.message}`);
   }
-  return new Response(JSON.stringify({ ok: true, results }, null, 2), {
+
+  if (token && digest.length) {
+    await sendNotification(token,
+      `סיכום פעילות — ${digest.length} עדכונים`,
+      digest.join("\n\n") + `\n\n──\nצפה באפליקציה: https://arazim-eng.github.io/management`
+    );
+  }
+
+  return new Response(JSON.stringify({ ok: !hadError, results }, null, 2), {
     headers: { "Content-Type": "application/json" }
   });
 });
