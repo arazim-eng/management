@@ -446,7 +446,7 @@ function vInv(){
       if(closer){chainCell='<span style="font-size:11px;color:#3a6b10">✓ חשב\' מס '+ex(closer.invoice_number||'')+'</span>';}
       else if(inv.status==='paid'||inv.status==='accounting'){chainCell='<span class="need-tax-badge" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">⚠️ דרושה חשבונית מס</span>';}
     }else if(inv.closes_id){var orig=null;for(var j=0;j<D.invoices.length;j++)if(D.invoices[j].id===inv.closes_id){orig=D.invoices[j];break;}chainCell='<span style="font-size:11px;color:#888">סוגרת: '+ex(orig?orig.invoice_number||inv.closes_id:'')+'</span>';}
-    h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td style="cursor:pointer" onclick="openI(\''+inv.id+'\',null)" title="לחץ לעריכה / שיוך מחדש"><div style="font-weight:600">'+(p?ex(p.name):(inv.project_id?'—':'<span style="color:#b02">⚠️ לשיוך לפרויקט</span>'))+' <span style="color:#ccc;font-size:10px">✏️</span></div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span></td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
+    h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td style="cursor:pointer" onclick="openI(\''+inv.id+'\',null)" title="לחץ לעריכה / שיוך מחדש"><div style="font-weight:600">'+(p?ex(p.name):(inv.project_id?'—':'<span style="color:#b02">⚠️ לשיוך לפרויקט</span>'))+' <span style="color:#ccc;font-size:10px">✏️</span></div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span>'+(inv.exclude_cashflow?'<div style="font-size:10px;color:#834e0a;margin-top:2px">📋 לא בתזרים</div>':'')+'</td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
   }
   h+='</tbody></table></div>';return h;
 }
@@ -478,7 +478,7 @@ function vAl(){
 /* ── CASHFLOW (שוטף+30) ── */
 function invBaseDate(i){return i.date_sent||(i.created_at?i.created_at.slice(0,10):null);}
 function dueDate(i){var b=invBaseDate(i);if(!b)return null;var d=new Date(b);return new Date(d.getFullYear(),d.getMonth()+2,0);}
-function pendingInvs(){return D.invoices.filter(function(i){return (i.status==='sent'||i.status==='accounting')&&Number(i.amount);});}
+function pendingInvs(){return D.invoices.filter(function(i){return (i.status==='sent'||i.status==='accounting')&&Number(i.amount)&&!i.exclude_cashflow;});}
 function unassigned(){return D.invoices.filter(function(i){return !i.project_id&&i.invoice_type!=='הצעת מחיר';});}
 function overdueInvs(){var t=new Date();return pendingInvs().filter(function(i){var d=dueDate(i);return d&&d<t;});}
 function invClient(i){if(i.project_id){for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id)return gc(D.projects[j].client_id);}return null;}
@@ -699,6 +699,7 @@ function openI(iid,prefPid,prefClosesId){
   h+='<div class="fg"><label class="flbl">תאריך שליחה</label><input class="fi" id="i-ds" type="date" value="'+(inv?inv.date_sent||'':'')+'"></div>';
   h+='<div class="fg"><label class="flbl">סטטוס תשלום</label><select class="fs" id="i-st">'+stO+'</select></div>';
   h+='<div class="fg"><label class="flbl">תאריך תשלום</label><input class="fi" id="i-dp" type="date" value="'+(inv?inv.date_paid||'':'')+'"></div>';
+  h+='<div class="fg w2" style="flex-direction:row;align-items:center;gap:7px;background:#faf8f5;border:1px solid #eee;border-radius:7px;padding:8px 12px"><input type="checkbox" id="i-ncf" style="width:16px;height:16px"'+(inv&&inv.exclude_cashflow?' checked':'')+'><label for="i-ncf" style="font-size:12px;color:#5a3200;cursor:pointer">📋 חשבון להזמנת עבודה בלבד — <strong>לא לספור בתזרים</strong> (לא תקבול אמיתי)</label></div>';
   h+='<div class="fg w2" id="closes-wrap"></div>';
   h+='<div class="fg w2"><label class="flbl">הערות</label><textarea class="fta" id="i-nt">'+ex(inv?inv.notes||'':'')+'</textarea></div>';
   h+='<div class="fg w2"><label class="flbl">📎 קובץ PDF</label>';
@@ -719,6 +720,7 @@ function openI(iid,prefPid,prefClosesId){
 function svI2(iid){
   var data={project_id:document.getElementById('i-pr').value,invoice_number:document.getElementById('i-nm').value.trim(),invoice_type:document.getElementById('i-tp').value,amount:parseFloat(document.getElementById('i-am').value)||null,entity:document.getElementById('i-en').value,date_sent:document.getElementById('i-ds').value||null,date_paid:document.getElementById('i-dp').value||null,status:document.getElementById('i-st').value,notes:document.getElementById('i-nt').value.trim(),updated_at:new Date().toISOString()};
   var clEl=document.getElementById('i-cl');data.closes_id=clEl?clEl.value||null:null;
+  var ncfEl=document.getElementById('i-ncf');data.exclude_cashflow=ncfEl?ncfEl.checked:false;
   if(iid){for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===iid){D.invoices[i]=Object.assign({},D.invoices[i],data);break;}}
   else{data.id=uid();data.created_at=new Date().toISOString();D.invoices.push(data);}
   svI();var _id2=iid?D.invoices.filter(function(x){return x.id===iid;})[0]:D.invoices[D.invoices.length-1];if(_id2)cloudSave('invoices',_id2);closeM();go(D.view);
