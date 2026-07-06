@@ -140,6 +140,7 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
   <div class="ni" id="ni-projects" onclick="go('projects')"><span class="nic">📋</span>פרויקטים<span class="nb" id="b-op" style="display:none">0</span></div>
   <div class="ni" id="ni-invoices" onclick="go('invoices')"><span class="nic">🧾</span>חשבוניות<span class="nb" id="b-iv" style="display:none">0</span></div>
   <div class="ni" id="ni-cashflow" onclick="go('cashflow')"><span class="nic">💰</span>תזרים וחייבים<span class="nb" id="b-cf" style="display:none;background:#834e0a">0</span></div>
+  <div class="ni" id="ni-handlers" onclick="go('handlers')"><span class="nic">👤</span>גורמים מטפלים</div>
   <div class="sb-sec">עובדים</div>
   <div class="ni" id="ni-employees" onclick="go('employees')"><span class="nic">👥</span>עובדים ורווח</div>
   <div class="sb-sec">התראות</div>
@@ -176,7 +177,7 @@ var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l
 var IT=['הצעת מחיר','חשבון עסקה','חשבונית מס','קבלה'];
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-var D={view:'dashboard',projects:[],invoices:[],employees:[],f:{cl:'',st:'',en:'',yr:'',q:''}};
+var D={view:'dashboard',projects:[],invoices:[],employees:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:''}};
 var SB_URL='https://kwmldvcsucbuvsjsiuaq.supabase.co';
 var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8';
 /* ── AUTH: RLS allows authenticated users only; the anon key is just the apikey ── */
@@ -337,12 +338,12 @@ function go(v){
   D.view=v;
   var ns=document.querySelectorAll('.ni');for(var i=0;i<ns.length;i++)ns[i].classList.remove('on');
   var el=document.getElementById('ni-'+v);if(el)el.classList.add('on');
-  var T={dashboard:'לוח בקרה',projects:'כל הפרויקטים',invoices:'חשבוניות',cashflow:'תזרים וחייבים',employees:'עובדים ורווח',alerts:'דברים פתוחים'};
+  var T={dashboard:'לוח בקרה',projects:'כל הפרויקטים',invoices:'חשבוניות',cashflow:'תזרים וחייבים',handlers:'גורמים מטפלים',employees:'עובדים ורווח',alerts:'דברים פתוחים'};
   document.getElementById('vtitle').textContent=T[v]||v;
   var A={projects:'<button class="btn btn-blue" onclick="openP(null)">+ פרויקט חדש</button>',invoices:'<button class="btn btn-blue" onclick="openI(null,null)">+ חשבונית חדשה</button>',employees:'<button class="btn btn-blue" onclick="openE(null)">+ עובד חדש</button>'};
   document.getElementById('vact').innerHTML=A[v]||'';
   var html='';
-  try{if(v==='dashboard')html=vDash();else if(v==='projects')html=vProj();else if(v==='invoices')html=vInv();else if(v==='cashflow')html=vCash();else if(v==='employees')html=vEmp();else if(v==='alerts')html=vAl();else html=vDash();}
+  try{if(v==='dashboard')html=vDash();else if(v==='projects')html=vProj();else if(v==='invoices')html=vInv();else if(v==='cashflow')html=vCash();else if(v==='handlers')html=vHand();else if(v==='employees')html=vEmp();else if(v==='alerts')html=vAl();else html=vDash();}
   catch(err){html='<div style="padding:20px;color:red">שגיאה: '+err.message+'</div>';}
   document.getElementById('view').innerHTML=html;
   bdg();
@@ -445,7 +446,7 @@ function vInv(){
       if(closer){chainCell='<span style="font-size:11px;color:#3a6b10">✓ חשב\' מס '+ex(closer.invoice_number||'')+'</span>';}
       else if(inv.status==='paid'||inv.status==='accounting'){chainCell='<span class="need-tax-badge" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">⚠️ דרושה חשבונית מס</span>';}
     }else if(inv.closes_id){var orig=null;for(var j=0;j<D.invoices.length;j++)if(D.invoices[j].id===inv.closes_id){orig=D.invoices[j];break;}chainCell='<span style="font-size:11px;color:#888">סוגרת: '+ex(orig?orig.invoice_number||inv.closes_id:'')+'</span>';}
-    h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td><div style="font-weight:600">'+(p?ex(p.name):(inv.project_id?'—':'<span style="color:#b02">⚠️ לשיוך לפרויקט</span>'))+'</div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span></td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
+    h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td style="cursor:pointer" onclick="openI(\''+inv.id+'\',null)" title="לחץ לעריכה / שיוך מחדש"><div style="font-weight:600">'+(p?ex(p.name):(inv.project_id?'—':'<span style="color:#b02">⚠️ לשיוך לפרויקט</span>'))+' <span style="color:#ccc;font-size:10px">✏️</span></div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span></td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
   }
   h+='</tbody></table></div>';return h;
 }
@@ -533,6 +534,78 @@ function vCash(){
   h+='</tbody></table></div>';
   return h;
 }
+/* ── HANDLERS (גורמים מטפלים) ── */
+function normHandler(v){return String(v||'').trim().replace(/\s+/g,' ');}
+function handlersList(){
+  var seen={},out=[];
+  D.projects.forEach(function(p){var n=normHandler(p.contact_name);if(!n)return;var k=n.toLowerCase();if(!seen[k]){seen[k]=1;out.push(n);}});
+  return out.sort(function(a,b){return a.localeCompare(b,'he');});
+}
+function handlerData(name){
+  var k=normHandler(name).toLowerCase();
+  var projs=D.projects.filter(function(p){return normHandler(p.contact_name).toLowerCase()===k;});
+  var pids={};projs.forEach(function(p){pids[p.id]=1;});
+  var noOrd=projs.filter(function(p){return p.status==='no_order'||p.status==='pending_order';});
+  var pend=D.invoices.filter(function(i){return pids[i.project_id]&&(i.status==='sent'||i.status==='accounting')&&Number(i.amount);});
+  return{projs:projs,noOrd:noOrd,pend:pend,noOrdSum:asum(noOrd,'supervision_amount'),pendSum:asum(pend,'amount')};
+}
+function handlerSummaryText(name){
+  var d=handlerData(name);var L=[];
+  L.push('סיכום עבור '+name+' — '+new Date().toLocaleDateString('he-IL'));
+  L.push('מ.ס ארזים הנדסה');
+  L.push('');
+  if(d.noOrd.length){
+    L.push('⚠️ פרויקטים שממתינים להזמנת עבודה ('+d.noOrd.length+'):');
+    d.noOrd.forEach(function(p){L.push('  • '+p.name+(p.supervision_amount?' — '+fc(p.supervision_amount):'')+(p.status==='pending_order'?' (הובטחה הזמנה)':''));});
+    L.push('  סה"כ: '+fc(d.noOrdSum));
+    L.push('');
+  }
+  if(d.pend.length){
+    L.push('💰 חשבוניות שהוגשו וטרם שולמו ('+d.pend.length+'):');
+    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=dd&&dd<new Date();L.push('  • '+(i.invoice_type||'חשבונית')+' '+(i.invoice_number||'')+' — '+(p?p.name:'')+' — '+fc(i.amount)+(late?' ⏰ באיחור':''));});
+    L.push('  סה"כ: '+fc(d.pendSum));
+  }
+  if(!d.noOrd.length&&!d.pend.length)L.push('✅ אין פריטים פתוחים');
+  return L.join('\n');
+}
+function copyHandlerSummary(name){
+  var t=handlerSummaryText(name);
+  (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject()).then(function(){alert('הסיכום הועתק — אפשר להדביק בוואטסאפ/מייל');}).catch(function(){prompt('העתק ידנית:',t);});
+}
+function vHand(){
+  var names=handlersList();
+  var sel=D.f.hn||'';
+  var h='<div class="info-bar">👤 סינון לפי <strong>גורם מטפל</strong> — מה כל גורם בעירייה חייב לך: הזמנות עבודה שטרם הוצאו וחשבוניות שטרם שולמו. שב איתו, הראה לו, והעתק סיכום בלחיצה.</div>';
+  h+='<div class="fbar"><select onchange="D.f.hn=this.value;go(\'handlers\')"><option value="">— כל הגורמים —</option>';
+  names.forEach(function(n){h+='<option value="'+ex(n)+'"'+(sel===n?' selected':'')+'>'+ex(n)+'</option>';});
+  h+='</select>'+(sel?'<button class="btn btn-blue" onclick="copyHandlerSummary(\''+ex(sel)+'\')">📋 העתק סיכום ל'+ex(sel)+'</button><button class="btn btn-sm" onclick="D.f.hn=\'\';go(\'handlers\')">✕</button>':'')+'</div>';
+  if(!sel){
+    h+='<div class="tbl-box"><table><thead><tr><th>גורם מטפל</th><th>פרויקטים</th><th>ממתין להזמנת עבודה</th><th>חשבוניות שטרם שולמו</th><th>סה"כ חשיפה</th><th></th></tr></thead><tbody>';
+    if(!names.length)h+='<tr><td colspan="6" class="empty">אין גורמים מטפלים — מלא "גורם מטפל" בפרויקטים</td></tr>';
+    names.forEach(function(n){var d=handlerData(n);if(!d.projs.length)return;
+      h+='<tr style="cursor:pointer" onclick="D.f.hn=\''+ex(n)+'\';go(\'handlers\')"><td style="font-weight:700">👤 '+ex(n)+'</td><td>'+d.projs.length+'</td>';
+      h+='<td>'+(d.noOrd.length?'<span class="fin-warn">'+d.noOrd.length+' | '+fc(d.noOrdSum)+'</span>':'—')+'</td>';
+      h+='<td>'+(d.pend.length?'<span class="fin-warn">'+d.pend.length+' | '+fc(d.pendSum)+'</span>':'—')+'</td>';
+      h+='<td style="font-weight:700;color:#b02">'+fc(d.noOrdSum+d.pendSum)+'</td><td style="color:#1860a8;font-size:12px">פתח ▸</td></tr>';});
+    h+='</tbody></table></div>';
+    return h;
+  }
+  var d=handlerData(sel);
+  h+='<div class="stats3">'+sc('פרויקטים באחריות '+ex(sel),d.projs.length,'','')+sc('ממתין להזמנת עבודה',fc(d.noOrdSum),d.noOrd.length+' פרויקטים',d.noOrd.length?'#b02':'#3a6b10')+sc('הוגש וטרם שולם',fc(d.pendSum),d.pend.length+' חשבוניות',d.pend.length?'#834e0a':'#3a6b10')+'</div>';
+  h+='<div class="sec-hdr" style="color:#b02">⚠️ ממתין להזמנת עבודה ('+d.noOrd.length+')</div>';
+  if(!d.noOrd.length)h+='<div style="color:#bbb;font-size:13px;padding:6px 0 14px">✅ אין פרויקטים ללא הזמנה</div>';
+  d.noOrd.forEach(function(p){var st=gs(p.status);h+='<div class="al"><span><strong>'+ex(p.name)+'</strong></span><span class="pill" style="color:'+st.c+';background:'+st.bg+';cursor:default">'+st.l+'</span><span style="font-weight:700;margin-right:auto">'+fc(p.supervision_amount)+'</span><span class="al-act" onclick="openSt(\''+p.id+'\')">עדכן ▸</span></div>';});
+  h+='<div class="sec-hdr" style="margin-top:14px;color:#834e0a">💰 חשבוניות שהוגשו וטרם שולמו ('+d.pend.length+')</div>';
+  if(!d.pend.length)h+='<div style="color:#bbb;font-size:13px;padding:6px 0">✅ אין חשבוניות ממתינות</div>';
+  else{
+    h+='<div class="tbl-box"><table><thead><tr><th>מספר</th><th>פרויקט</th><th>הוגש</th><th>מועד פירעון (שוטף+30)</th><th>סכום</th><th></th></tr></thead><tbody>';
+    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=dd&&dd<new Date();
+      h+='<tr><td style="font-weight:700">'+(i.file_url?'<a href="#" onclick="openPDF(\''+i.file_url+'\');return false">📄</a> ':'')+ex(i.invoice_number||'—')+'</td><td>'+(p?ex(p.name):'—')+'</td><td style="font-size:12px;color:#888">'+fd(invBaseDate(i))+'</td><td style="color:'+(late?'#b02':'#3a6b10')+';font-weight:600">'+(dd?fd(dd):'—')+(late?' ⏰':'')+'</td><td style="font-weight:700;color:#834e0a">'+fc(i.amount)+'</td><td><button class="btn btn-sm" style="color:#3a6b10;border-color:#bde090" onclick="markPaid(\''+i.id+'\')">✓ שולם</button></td></tr>';});
+    h+='</tbody><tfoot><tr><td colspan="4">סה"כ</td><td style="color:#834e0a">'+fc(d.pendSum)+'</td><td></td></tr></tfoot></table></div>';
+  }
+  h+='<div style="margin-top:10px"><button class="btn btn-blue" onclick="copyHandlerSummary(\''+ex(sel)+'\')">📋 העתק סיכום לפגישה / וואטסאפ</button></div>';
+  return h;
+}
 /* ── MODAL UTILS ── */
 function showM(html){document.getElementById('modal').innerHTML=html;document.getElementById('mbg').classList.add('open');}
 function closeM(){document.getElementById('mbg').classList.remove('open');}
@@ -557,7 +630,8 @@ function openP(pid){
   h+='<div class="fg"><label class="flbl">לקוח</label><select class="fs" id="p-cl" onchange="onCC(this.value)">'+clO+'</select></div>';
   h+='<div class="fg"><label class="flbl">מחלקה</label><select class="fs" id="p-d">'+dOpts(iCl,p?p.department_id:'')+'</select></div>';
   h+='<div class="fg w2"><label class="flbl">שם הפרויקט *</label><input class="fi" id="p-nm" value="'+ex(p?p.name||'':'')+'"></div>';
-  h+='<div class="fg"><label class="flbl">איש קשר</label><input class="fi" id="p-co" value="'+ex(p?p.contact_name||'':'')+'"></div>';
+  var hnO='';handlersList().forEach(function(n){hnO+='<option value="'+ex(n)+'">';});
+  h+='<div class="fg"><label class="flbl">גורם מטפל / איש קשר</label><input class="fi" id="p-co" list="handlers-dl" value="'+ex(p?p.contact_name||'':'')+'" placeholder="בחר מהרשימה או הקלד חדש"><datalist id="handlers-dl">'+hnO+'</datalist></div>';
   h+='<div class="fg"><label class="flbl">מספר הזמנת עבודה</label><input class="fi" id="p-wo" value="'+ex(p?p.work_order_number||'':'')+'"></div>';
   h+='<div class="fg"><label class="flbl">סטטוס</label><select class="fs" id="p-st">'+stO+'</select></div>';
   h+='</div>';
@@ -585,7 +659,7 @@ function openP(pid){
 function svP2(pid){
   var nm=document.getElementById('p-nm').value.trim();if(!nm){alert('נא להזין שם פרויקט');return;}
   var ptype=document.getElementById('p-type').value;
-  var data={client_id:document.getElementById('p-cl').value,department_id:document.getElementById('p-d').value,name:nm,contact_name:document.getElementById('p-co').value.trim(),entity:document.getElementById('p-en').value,project_type:ptype,work_order_number:document.getElementById('p-wo').value.trim(),status:document.getElementById('p-st').value,notes:document.getElementById('p-nt').value.trim(),updated_at:new Date().toISOString()};
+  var data={client_id:document.getElementById('p-cl').value,department_id:document.getElementById('p-d').value,name:nm,contact_name:normHandler(document.getElementById('p-co').value),entity:document.getElementById('p-en').value,project_type:ptype,work_order_number:document.getElementById('p-wo').value.trim(),status:document.getElementById('p-st').value,notes:document.getElementById('p-nt').value.trim(),updated_at:new Date().toISOString()};
   if(ptype==='regular'){data.scope_amount=parseFloat(document.getElementById('p-sc').value)||null;data.supervision_pct=parseFloat(document.getElementById('p-pc').value)||null;data.supervision_amount=parseFloat(document.getElementById('p-am').value)||null;}
   else{data.contract_start=document.getElementById('p-cs').value||null;data.contract_end=document.getElementById('p-ce').value||null;data.contract_hourly_rate=parseFloat(document.getElementById('p-chr').value)||null;data.contract_avg_hours=parseFloat(document.getElementById('p-cah').value)||null;data.supervision_amount=null;}
   if(pid){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i]=Object.assign({},D.projects[i],data);break;}}

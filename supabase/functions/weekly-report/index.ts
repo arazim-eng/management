@@ -185,6 +185,50 @@ function buildReport(projects: any[], invoices: any[]): string {
   }
   s2 += `</div>`;
 
+  // ── Section 2.5: ממתין לפי גורם מטפל ──
+  const norm = (v: any) => String(v || "").trim().replace(/\s+/g, " ");
+  const byHandler: Record<string, { name: string; noOrdCnt: number; noOrdSum: number; pendCnt: number; pendSum: number }> = {};
+  const pidHandler: Record<string, string> = {};
+  projects.forEach(p => {
+    const n = norm(p.contact_name);
+    if (n) pidHandler[p.id] = n;
+    if (!n || p.status === "closed") return;
+    const k = n.toLowerCase();
+    if (!byHandler[k]) byHandler[k] = { name: n, noOrdCnt: 0, noOrdSum: 0, pendCnt: 0, pendSum: 0 };
+    if (p.status === "no_order" || p.status === "pending_order") {
+      byHandler[k].noOrdCnt++;
+      byHandler[k].noOrdSum += Number(p.supervision_amount) || 0;
+    }
+  });
+  invoices.forEach(inv => {
+    if (inv.status !== "sent" && inv.status !== "accounting") return;
+    const n = pidHandler[inv.project_id];
+    if (!n) return;
+    const k = n.toLowerCase();
+    if (!byHandler[k]) byHandler[k] = { name: n, noOrdCnt: 0, noOrdSum: 0, pendCnt: 0, pendSum: 0 };
+    byHandler[k].pendCnt++;
+    byHandler[k].pendSum += Number(inv.amount) || 0;
+  });
+  const handlers = Object.values(byHandler)
+    .filter(e => e.noOrdCnt || e.pendCnt)
+    .sort((a, b) => (b.noOrdSum + b.pendSum) - (a.noOrdSum + a.pendSum));
+  let s25 = `<div class="section"><div class="section-title s2">👤 ממתין לפי גורם מטפל (${handlers.length})</div>`;
+  if (!handlers.length) {
+    s25 += `<div class="empty">✅ אין פריטים פתוחים לפי גורם</div>`;
+  } else {
+    s25 += `<table><thead><tr><th>גורם מטפל</th><th>ממתין להזמנה</th><th>הוגש וטרם שולם</th><th>סה"כ חשיפה</th></tr></thead><tbody>`;
+    handlers.forEach(e => {
+      s25 += `<tr>
+        <td><strong>${e.name}</strong></td>
+        <td>${e.noOrdCnt ? `${e.noOrdCnt} | ${fc(e.noOrdSum)}` : "—"}</td>
+        <td>${e.pendCnt ? `${e.pendCnt} | ${fc(e.pendSum)}` : "—"}</td>
+        <td><strong style="color:#7a0000">${fc(e.noOrdSum + e.pendSum)}</strong></td>
+      </tr>`;
+    });
+    s25 += `</tbody></table>`;
+  }
+  s25 += `</div>`;
+
   // Section 3 HTML
   const totalPaid = paidThisWeek.reduce((s, i) => s + (Number(i.amount) || 0), 0);
   let s3 = `<div class="section">
@@ -254,6 +298,7 @@ function buildReport(projects: any[], invoices: any[]): string {
   <div class="body">
     ${s1}
     ${s2}
+    ${s25}
     ${s3}
     ${s4}
   </div>
