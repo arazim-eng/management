@@ -227,8 +227,13 @@ const PAYMENT_SCHEMA = {
     total_amount: { type: ["number", "null"], description: "הסכום הכולל ששולם" },
     payment_date: { type: ["string", "null"], description: "תאריך התשלום YYYY-MM-DD" },
     payer: { type: ["string", "null"], description: "שם המשלם (עירייה/גוף)" },
+    payee_entity: {
+      type: ["string", "null"],
+      enum: ["עוסק", "חברה", null],
+      description: "המוטב שקיבל את התשלום: 'עוסק' אם המוטב הוא משה סעדה עוסק מורשה, 'חברה' אם המוטב הוא מ.ס ארזים הנדסה בע\"מ",
+    },
   },
-  required: ["invoices", "total_amount", "payment_date", "payer"],
+  required: ["invoices", "total_amount", "payment_date", "payer", "payee_entity"],
   additionalProperties: false,
 };
 
@@ -444,7 +449,8 @@ async function processPaymentEmail(token: string, mailbox: string, email: any, i
         invoice_number: s,
         invoice_type: "חשבון עסקה",
         amount: item.amount ?? null,
-        entity: "עוסק",
+        // המוטב בהודעת התשלום קובע את הישות (עוסק מורשה / מ.ס ארזים הנדסה בע"מ)
+        entity: info.payee_entity || "עוסק",
         date_paid: info.payment_date || new Date().toISOString().slice(0, 10),
         status: "paid",
         notes: `⚠️ נוצר אוטומטית מהודעת תשלום של ${info.payer || "העירייה"} — יש לשייך לפרויקט`,
@@ -457,7 +463,7 @@ async function processPaymentEmail(token: string, mailbox: string, email: any, i
     }
   }
 
-  let msg = `💰 תשלום מ-${info.payer || fromAddress(email)} בסך ₪${info.total_amount} (${info.payment_date})`;
+  let msg = `💰 תשלום מ-${info.payer || fromAddress(email)} בסך ₪${info.total_amount} (${info.payment_date})${info.payee_entity ? ` — לישות: ${info.payee_entity}` : ""}`;
   if (updated.length) msg += `\n   ✅ עודכנו לשולם: ${updated.join(", ")}`;
   if (created.length) msg += `\n   🆕 נוצרו כשולמו (לשיוך לפרויקט): ${created.join(", ")}`;
   digest.push(msg);
