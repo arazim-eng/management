@@ -175,7 +175,7 @@ var CL=[{id:'jlm',name:'עיריית ירושלים',ent:'עוסק',col:'#1860a8
 var DP={jlm:[{id:'j1',name:'מינהלת העירייה',emp:true},{id:'j2',name:'מנהל חינוך — תכנון',emp:false},{id:'j3',name:'מנהל חינוך — ביצוע/אחר',emp:false},{id:'j4',name:'נגישות ואקוסטיקה',emp:false},{id:'j5',name:'בטיחות חינוך חרדי',emp:false}],rl:[{id:'r1',name:'מחלקת חשמל',emp:true},{id:'r2',name:'מחלקת בינוי',emp:true},{id:'r3',name:'מחלקת שפ"ע',emp:true}],bs:[{id:'b1',name:'כללי',emp:false}],ge:[{id:'g1',name:'כללי',emp:false}],ef:[{id:'e1',name:'כללי',emp:false}],nc:[{id:'n1',name:'כללי',emp:false}],kg:[{id:'k1',name:'כללי',emp:false}]};
 var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l:'ממתין להזמנה',c:'#834e0a',bg:'#faebd8'},offer_sent:{l:'נשלח חשבון עסקה',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח עירייה',c:'#0e6d54',bg:'#e0f4ed'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},invoice_sent:{l:'נשלחה חשבונית מס',c:'#3b3387',bg:'#eeedfd'},closed:{l:'סגור',c:'#555',bg:'#f1f0ec'}};
 var IT=['הצעת מחיר','חשבון עסקה','חשבונית מס','קבלה'];
-var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'}};
+var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},cancelled:{l:'מבוטל',c:'#b02',bg:'#fce9e9'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 var PFCAT=['הזמנת עבודה','חשבון מאושר','הצעת מחיר','אחר'];
 /* client numbering codes — position in CL determines 2-digit code (01..) */
@@ -385,7 +385,7 @@ function ex(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function chainCloser(invId){for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].closes_id===invId)return D.invoices[i];return null;}
 function needsTaxInv(inv){if(inv.invoice_type!=='חשבון עסקה')return false;if(inv.status!=='paid'&&inv.status!=='accounting')return false;return!chainCloser(inv.id);}
 function getNeedTax(){return D.invoices.filter(function(i){return needsTaxInv(i);});}
-function getOpenTA(pid,excludeId){var closed={};D.invoices.filter(function(i){return i.closes_id;}).forEach(function(i){closed[i.closes_id]=1;});return D.invoices.filter(function(i){return i.project_id===pid&&i.invoice_type==='חשבון עסקה'&&!closed[i.id]&&i.id!==excludeId;});}
+function getOpenTA(pid,excludeId){var closed={};D.invoices.filter(function(i){return i.closes_id;}).forEach(function(i){closed[i.closes_id]=1;});return D.invoices.filter(function(i){return i.project_id===pid&&i.invoice_type==='חשבון עסקה'&&i.status!=='cancelled'&&!closed[i.id]&&i.id!==excludeId;});}
 /* ── FINANCIAL ── */
 /* MONEY RULE: only חשבונית מס counts as real revenue. חשבון עסקה is a request, tracked separately. */
 function projFin(pid,p){
@@ -462,7 +462,7 @@ function vDash(){
   var h='<div class="stats4">'+sc('פרויקטים פעילים',active,noOrd+' ללא הזמנת עבודה','')+sc('ממתין לתשלום',fc(asum(pI,'amount')),pI.length+' חשבוניות','#834e0a')+sc('שולם השנה',fc(asum(paidI,'amount')),'','#3a6b10')+sc('דרושה חשבונית מס',nt.length,'חשבונות עסקה ממתינים',nt.length?'#b02':'')+'</div>';
   var un=unassigned();
   if(un.length){h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000;margin-bottom:10px"><span>⚠️ <strong>'+un.length+' חשבוניות ללא שיוך לפרויקט</strong> (נוצרו אוטומטית מהמייל) — סה"כ '+fc(asum(un,'amount'))+'</span><span class="al-act" style="color:#b02" onclick="go(\'cashflow\')">טפל עכשיו ▸</span></div>';}
-  if(nt.length){h+='<div class="sec-hdr" style="color:#b02">🧾 דרושה הוצאת חשבונית מס</div>';nt.slice(0,4).forEach(function(inv){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===inv.project_id){p=D.projects[j];break;}var c=gc(p?p.client_id:'');h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(inv.invoice_number||'—')+'</strong> | '+ex(p?p.name:'—')+' — '+ex(c.name||'')+'</span><span style="font-weight:700;margin-right:auto">'+fc(inv.amount)+'</span><span class="al-act" style="color:#b02" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">הוצא חשבונית מס</span></div>';});if(nt.length>4)h+='<div style="font-size:12px;color:#b02;padding:5px 12px">ועוד '+(nt.length-4)+' נוספים...</div>';}
+  if(nt.length){h+='<div class="sec-hdr" style="color:#b02">🧾 דרושה הוצאת חשבונית מס</div>';nt.slice(0,4).forEach(function(inv){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===inv.project_id){p=D.projects[j];break;}var c=gc(p?p.client_id:'');h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(inv.invoice_number||'—')+'</strong> | '+ex(p?p.name:'—')+' — '+ex(c.name||'')+'</span><span style="font-weight:700;margin-right:auto">'+fc(inv.amount)+'</span><span class="al-act" style="color:#b02" onclick="convertToTax(\''+inv.id+'\')">הוצא חשבונית מס</span></div>';});if(nt.length>4)h+='<div style="font-size:12px;color:#b02;padding:5px 12px">ועוד '+(nt.length-4)+' נוספים...</div>';}
   if(al.length){h+='<div class="sec-hdr" style="color:#834e0a;margin-top:10px">⚠️ דורשים טיפול מיידי</div>';al.slice(0,5).forEach(function(p){var c=gc(p.client_id);var s=gs(p.status);h+='<div class="al"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(p.name)+'</strong> — '+ex(c.name||'')+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span><span class="al-act" onclick="openSt(\''+p.id+'\')">עדכן ▸</span></div>';});if(al.length>5)h+='<div style="font-size:12px;color:#834e0a;padding:5px 12px">ועוד '+(al.length-5)+' נוספים...</div>';}
   h+='<div class="tbl-box" style="margin-top:14px"><div style="padding:11px 14px;border-bottom:1px solid #eee;font-size:13px;font-weight:700">סיכום לפי לקוח</div><div style="padding:0 14px">';
   var any=false;
@@ -480,8 +480,8 @@ function vProj(){
   var yrO='<option value="">כל השנים</option>';for(var i=0;i<yrs.length;i++)yrO+='<option value="'+yrs[i]+'"'+(D.f.yr===yrs[i]?' selected':'')+'>'+yrs[i]+'</option>';
   var totSup=0,totSub=0;ps.forEach(function(p){if(p.project_type!=='contract')totSup+=Number(p.supervision_amount)||0;var f=projFin(p.id,p);totSub+=f.sub;});
   var h='<div class="fbar"><select onchange="sf(\'cl\',this.value)">'+clO+'</select><select onchange="sf(\'st\',this.value)">'+stO+'</select><select onchange="sf(\'en\',this.value)"><option value="">עוסק+חברה</option><option value="עוסק"'+(D.f.en==='עוסק'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(D.f.en==='חברה'?' selected':'')+'>חברה בע"מ</option></select><select onchange="sf(\'yr\',this.value)">'+yrO+'</select><input type="text" placeholder="שם / הזמנה / איש קשר" value="'+ex(D.f.q)+'" oninput="sf(\'q\',this.value)"><span style="font-size:12px;color:#888;margin-right:auto">'+ps.length+' | פיקוח: '+fc(totSup)+' | חשב\' מס: '+fc(totSub)+'</span>'+(D.projects.some(function(p){return !p.project_number;})?'<button class="btn btn-sm btn-amber" onclick="backfillProjNumbers()" title="הקצה מספר לפרויקטים קיימים">#️⃣ מספֵּר</button>':'')+(D.f.cl||D.f.st||D.f.en||D.f.yr||D.f.q?'<button class="btn btn-sm" onclick="cf()">✕</button>':'')+'</div>';
-  h+='<div class="tbl-box"><table><thead><tr><th>לקוח / מחלקה</th><th>פרויקט</th><th>הזמנה</th><th>ישות</th><th>סכום / תעריף</th><th>מצב כספי</th><th>סטטוס</th><th></th></tr></thead><tbody>';
-  if(!ps.length)h+='<tr><td colspan="8" class="empty">אין פרויקטים. לחץ "+ פרויקט חדש".</td></tr>';
+  h+='<div class="tbl-box"><table><thead><tr><th>מספר</th><th>לקוח / מחלקה</th><th>פרויקט</th><th>הזמנה</th><th>ישות</th><th>סכום / תעריף</th><th>מצב כספי</th><th>סטטוס</th><th></th></tr></thead><tbody>';
+  if(!ps.length)h+='<tr><td colspan="9" class="empty">אין פרויקטים. לחץ "+ פרויקט חדש".</td></tr>';
   else for(var pi=0;pi<ps.length;pi++){
     var p=ps[pi];var c=gc(p.client_id);var d=gd(p.client_id,p.department_id);var s=gs(p.status);var fin=projFin(p.id,p);var nt=pInvs(p.id).filter(function(i){return needsTaxInv(i);});
     var amtCell='';
@@ -497,15 +497,16 @@ function vProj(){
       if(nt.length)finHtml+='<br><span style="color:#b02;font-size:11px">⚠️ '+nt.length+' חשבונית מס חסרה</span>';
     }
     finHtml+='</div>';
-    h+='<tr><td><div style="display:flex;align-items:center;gap:5px;font-weight:600"><span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(c.name||p.client_id)+'</div><div style="font-size:11px;color:#888;padding-right:13px">'+ex(d.name||'')+'</div></td>';
-    h+='<td>'+(p.project_number?'<div style="font-size:10px;color:#1860a8;font-weight:700;letter-spacing:.03em">'+ex(p.project_number)+'</div>':'')+'<div style="font-weight:600">'+ex(p.name)+'</div>'+(p.contact_name?'<div style="font-size:11px;color:#888">'+ex(p.contact_name)+'</div>':'')+'</td>';
+    h+='<td style="white-space:nowrap"><span style="font-size:12px;color:#1860a8;font-weight:700;letter-spacing:.02em">'+(p.project_number?ex(p.project_number):'<span style="color:#ccc">—</span>')+'</span></td>';
+    h+='<td><div style="display:flex;align-items:center;gap:5px;font-weight:600"><span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(c.name||p.client_id)+'</div><div style="font-size:11px;color:#888;padding-right:13px">'+ex(d.name||'')+'</div></td>';
+    h+='<td><div style="font-weight:600">'+ex(p.name)+'</div>'+(p.contact_name?'<div style="font-size:11px;color:#888">'+ex(p.contact_name)+'</div>':'')+'</td>';
     h+='<td>'+(p.work_order_number?'<span class="wo-ok">'+ex(p.work_order_number)+'</span>':'<span class="wo-no">—</span>')+'</td>';
     h+='<td><span class="badge '+(p.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(p.entity||'עוסק')+'</span></td>';
     h+='<td>'+amtCell+'</td><td>'+finHtml+'</td>';
     h+='<td><span class="pill" style="color:'+s.c+';background:'+s.bg+';" onclick="openSt(\''+p.id+'\')">'+s.l+' ▾</span></td>';
     h+='<td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openP(\''+p.id+'\')">✏️</button><button class="btn btn-sm btn-ghost" onclick="openPI(\''+p.id+'\')">🧾</button><button class="btn btn-sm btn-ghost btn-red" onclick="delP(\''+p.id+'\')">🗑</button></div></td></tr>';
   }
-  h+='</tbody>'+(ps.length?'<tfoot><tr><td colspan="4">סה"כ '+ps.length+'</td><td style="color:#1860a8">'+fc(totSup)+'</td><td style="color:#834e0a;font-size:12px">הוגש: '+fc(totSub)+'</td><td colspan="2"></td></tr></tfoot>':'')+'</table></div>';return h;
+  h+='</tbody>'+(ps.length?'<tfoot><tr><td colspan="5">סה"כ '+ps.length+'</td><td style="color:#1860a8">'+fc(totSup)+'</td><td style="color:#834e0a;font-size:12px">חשב\' מס: '+fc(totSub)+'</td><td colspan="2"></td></tr></tfoot>':'')+'</table></div>';return h;
 }
 function sf(k,v){D.f[k]=v;document.getElementById('view').innerHTML=vProj();bdg();}
 function cf(){D.f={cl:'',st:'',en:'',yr:'',q:''};go('projects');}
@@ -527,7 +528,7 @@ function vInv(){
     if(inv.invoice_type==='חשבון עסקה'){
       var closer=chainCloser(inv.id);
       if(closer){chainCell='<span style="font-size:11px;color:#3a6b10">✓ חשב\' מס '+ex(closer.invoice_number||'')+'</span>';}
-      else if(inv.status==='paid'||inv.status==='accounting'){chainCell='<span class="need-tax-badge" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">⚠️ דרושה חשבונית מס</span>';}
+      else if(inv.status==='paid'||inv.status==='accounting'){chainCell='<span class="need-tax-badge" onclick="convertToTax(\''+inv.id+'\')">⚠️ דרושה חשבונית מס</span>';}
     }else if(inv.closes_id){var orig=null;for(var j=0;j<D.invoices.length;j++)if(D.invoices[j].id===inv.closes_id){orig=D.invoices[j];break;}chainCell='<span style="font-size:11px;color:#888">סוגרת: '+ex(orig?orig.invoice_number||inv.closes_id:'')+'</span>';}
     h+='<tr><td style="font-weight:700">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a> ':'')+ex(inv.invoice_number||'—')+'</td><td><span class="badge b-osek" style="white-space:nowrap">'+ex(inv.invoice_type||'—')+'</span></td><td style="cursor:pointer" onclick="openI(\''+inv.id+'\',null)" title="לחץ לעריכה / שיוך מחדש"><div style="font-weight:600">'+(p?ex(p.name):(inv.project_id?'—':'<span style="color:#b02">⚠️ לשיוך לפרויקט</span>'))+' <span style="color:#ccc;font-size:10px">✏️</span></div><div style="font-size:11px;color:#888;display:flex;align-items:center;gap:4px;margin-top:1px"><span class="dot" style="background:'+(c.col||'#888')+';width:6px;height:6px"></span>'+ex(c.name||'')+'</div></td><td><span class="badge '+(inv.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(inv.entity||'עוסק')+'</span></td><td style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</td><td style="font-size:12px;color:#888">'+fd(inv.date_sent)+'</td><td><span class="pill" style="color:'+s.c+';background:'+s.bg+'">'+s.l+'</span>'+(inv.exclude_cashflow?'<div style="font-size:10px;color:#834e0a;margin-top:2px">📋 לא בתזרים</div>':'')+'</td><td>'+chainCell+'</td><td><div style="display:flex;gap:3px"><button class="btn btn-sm btn-ghost" onclick="openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delI(\''+inv.id+'\')">🗑</button></div></td></tr>';
   }
@@ -551,7 +552,7 @@ function vAl(){
   var h='';
   var un=unassigned();
   if(un.length){h+='<div style="margin-bottom:20px"><div class="sec-hdr" style="color:#b02">📎 חשבוניות ללא שיוך לפרויקט ('+un.length+')</div>';un.forEach(function(inv){var s2=gi(inv.status);h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span><strong>'+ex(inv.invoice_type||'')+' '+ex(inv.invoice_number||'—')+'</strong></span><span class="pill" style="color:'+s2.c+';background:'+s2.bg+';cursor:default">'+s2.l+'</span><span style="font-weight:700;margin-right:auto">'+fc(inv.amount)+'</span><span class="al-act" style="color:#b02" onclick="openI(\''+inv.id+'\',null)">שייך לפרויקט ▸</span></div>';});h+='</div>';}
-  if(nt.length){h+='<div style="margin-bottom:20px"><div class="sec-hdr" style="color:#b02">🧾 דרושה הוצאת חשבונית מס ('+nt.length+')</div>';nt.forEach(function(inv){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===inv.project_id){p=D.projects[j];break;}var c=gc(p?p.client_id:'');h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(inv.invoice_number||'—')+'</strong> | '+ex(p?p.name:'—')+'</span><span style="font-weight:700;margin-right:auto">'+fc(inv.amount)+'</span><span class="al-act" style="color:#b02" onclick="openI(null,\''+inv.project_id+'\',\''+inv.id+'\')">הוצא חשבונית מס</span></div>';});h+='</div>';}
+  if(nt.length){h+='<div style="margin-bottom:20px"><div class="sec-hdr" style="color:#b02">🧾 דרושה הוצאת חשבונית מס ('+nt.length+')</div>';nt.forEach(function(inv){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===inv.project_id){p=D.projects[j];break;}var c=gc(p?p.client_id:'');h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(inv.invoice_number||'—')+'</strong> | '+ex(p?p.name:'—')+'</span><span style="font-weight:700;margin-right:auto">'+fc(inv.amount)+'</span><span class="al-act" style="color:#b02" onclick="convertToTax(\''+inv.id+'\')">הוצא חשבונית מס</span></div>';});h+='</div>';}
   h+=sec('⚠️ ללא הזמנת עבודה ('+noOrd.length+')',noOrd,function(p){var c=gc(p.client_id);return'<div class="al"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(p.name)+'</strong> — '+ex(c.name||'')+'</span><span style="color:#888;font-size:12px;margin-right:auto">'+fc(p.supervision_amount)+'</span><span class="al-act" onclick="openSt(\''+p.id+'\')">עדכן סטטוס</span></div>';},'אין פרויקטים ללא הזמנת עבודה');
   h+=sec('🕐 ממתין להזמנה ('+pOrd.length+')',pOrd,function(p){var c=gc(p.client_id);return'<div class="al" style="background:#fff3de;border-color:#ffd080;color:#5a3200"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(p.name)+'</strong> — '+ex(c.name||'')+'</span><span class="al-act" onclick="openSt(\''+p.id+'\')">עדכן</span></div>';},'אין ממתינים');
   if(contMiss.length){h+='<div style="margin-bottom:20px"><div class="sec-hdr" style="color:#3b3387">📅 חשבוניות חודשיות חסרות ('+contMiss.length+')</div>';contMiss.forEach(function(it){var c=gc(it.p.client_id);h+='<div class="al" style="background:#eeedfd;border-color:#c8c6f8;color:#2a2480"><span class="dot" style="background:'+(c.col||'#888')+'"></span><span><strong>'+ex(it.p.name)+'</strong> — '+MONTHS[it.mname]+' '+it.my+'</span><span class="al-act" style="color:#3b3387" onclick="openI(null,\''+it.p.id+'\')">הוסף חשבונית</span></div>';});h+='</div>';}
@@ -827,6 +828,41 @@ function svI2(iid){
   svI();var _id2=iid?D.invoices.filter(function(x){return x.id===iid;})[0]:D.invoices[D.invoices.length-1];if(_id2)cloudSave('invoices',_id2);closeM();go(D.view);
 }
 function delI(iid,fromM){if(!confirm('למחוק חשבונית זו?'))return;D.invoices=D.invoices.filter(function(x){return x.id!==iid;});svI();cloudDel('invoices',iid);closeM();go(D.view);}
+/* ── CONVERT חשבון עסקה → חשבונית מס (money received) ── */
+function convertToTax(taId){
+  var ta=null;for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===taId){ta=D.invoices[i];break;}
+  if(!ta)return;
+  var p=projById(ta.project_id);var today=new Date().toISOString().slice(0,10);
+  var h='<div class="mhdr"><span class="mtitle">💰 התקבל תשלום → חשבונית מס</span><button class="mx" onclick="closeM()">✕</button></div>';
+  h+='<div class="info-bar" style="background:#e8f1fb;border-color:#cfe2f5;color:#1c4f80">חשבון עסקה <strong>'+ex(ta.invoice_number||'—')+'</strong> על סך '+fc(ta.amount)+(p?' · '+ex(p.name):'')+'.<br>מלא את הסכום שהתקבל <strong>בפועל</strong> (לפעמים העירייה מאשרת פחות). החשבונית מס תיווצר כ<strong>"שולם"</strong> — לא כהמתנה לתשלום.</div>';
+  h+='<div class="fg2">';
+  h+='<div class="fg"><label class="flbl">מספר חשבונית מס</label><input class="fi" id="ct-nm" value="" placeholder="אפשר למלא בהמשך"></div>';
+  h+='<div class="fg"><label class="flbl">סכום שהתקבל בפועל (₪)</label><input class="fi" id="ct-am" type="number" value="'+(ta.amount||'')+'"></div>';
+  h+='<div class="fg"><label class="flbl">תאריך קבלת התשלום</label><input class="fi" id="ct-dp" type="date" value="'+today+'"></div>';
+  h+='<div class="fg"><label class="flbl">ישות</label><select class="fs" id="ct-en"><option value="עוסק"'+(ta.entity!=='חברה'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(ta.entity==='חברה'?' selected':'')+'>חברה בע"מ</option></select></div>';
+  h+='</div>';
+  h+='<div class="mftr"><button class="btn" onclick="closeM()">ביטול</button><button class="btn btn-blue" onclick="doConvertToTax(\''+taId+'\')">✅ צור חשבונית מס (שולם)</button></div>';
+  showM(h);
+}
+function cancelInv(iid,refreshPid){
+  var inv=null;for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===iid){inv=D.invoices[i];break;}
+  if(!inv)return;
+  var isC=inv.status==='cancelled';
+  if(!confirm(isC?'לשחזר את החשבונית (להסיר "מבוטל")?':'לסמן את "'+(inv.invoice_number||inv.invoice_type||'')+'" כמבוטל? היא תישאר בתיק אך תרד מהתזרים ומהחישובים.'))return;
+  inv.status=isC?'sent':'cancelled';inv.updated_at=new Date().toISOString();
+  svI();cloudSave('invoices',inv);
+  if(refreshPid)openPI(refreshPid);else go(D.view);
+}
+function doConvertToTax(taId){
+  var ta=null;for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===taId){ta=D.invoices[i];break;}
+  if(!ta)return;
+  var dp=document.getElementById('ct-dp').value||new Date().toISOString().slice(0,10);
+  var tax={id:uid(),project_id:ta.project_id,invoice_number:document.getElementById('ct-nm').value.trim(),invoice_type:'חשבונית מס',amount:parseFloat(document.getElementById('ct-am').value)||null,entity:document.getElementById('ct-en').value,date_sent:dp,date_paid:dp,status:'paid',closes_id:ta.id,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+  D.invoices.push(tax);
+  ta.status='paid';ta.updated_at=new Date().toISOString();
+  svI();cloudSave('invoices',tax);cloudSave('invoices',ta);
+  closeM();if(ta.project_id)openPI(ta.project_id);else go(D.view);
+}
 /* ── PROJECT INVOICES POPUP ── */
 function openPI(pid){
   var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}
@@ -856,9 +892,9 @@ function openPI(pid){
         var s=gi(ta.status);var taxInv=taxInvs[ta.id];
         h+='<div class="inv-chain">';
         var muniTag=ta.submitted_to_muni?'<span style="font-size:10px;color:#1c4f80;background:#e8f1fb;border-radius:4px;padding:1px 5px" title="הוגש לעירייה">🏛️ הוגש'+(ta.muni_submit_date?' '+fd(ta.muni_submit_date):'')+'</span>':'<span style="font-size:10px;color:#a55;background:#fdeded;border-radius:4px;padding:1px 5px">לא הוגש לעירייה</span>';
-        h+='<div class="inv-chain-main">'+(ta.file_url?'<a href="#" onclick="openPDF(\''+ta.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span>'+muniTag+'<span style="font-weight:700;color:#555">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><span style="margin-right:auto;display:flex;gap:2px"><button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+ta.id+'\',\''+pid+'\')">🗑</button></span></div>';
+        h+='<div class="inv-chain-main">'+(ta.file_url?'<a href="#" onclick="openPDF(\''+ta.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span>'+muniTag+'<span style="font-weight:700;color:#555">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><span style="margin-right:auto;display:flex;gap:2px">'+(ta.status==='cancelled'?'<button class="btn btn-sm btn-ghost" onclick="cancelInv(\''+ta.id+'\',\''+pid+'\')" title="שחזר">↩️</button>':((!taxInv?'<button class="btn btn-sm" style="color:#0e6d54;border-color:#9fe0cb" onclick="convertToTax(\''+ta.id+'\')" title="התקבל תשלום → צור חשבונית מס">💰 התקבל</button>':'')+'<button class="btn btn-sm btn-ghost" onclick="cancelInv(\''+ta.id+'\',\''+pid+'\')" title="בטל חשבון עסקה">🚫</button>'))+'<button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+ta.id+'\',\''+pid+'\')">🗑</button></span></div>';
         if(taxInv){var ts=gi(taxInv.status);h+='<div class="inv-chain-sub has-tax"><span class="chain-arrow">└──</span><span style="font-weight:700;min-width:70px">'+ex(taxInv.invoice_number||'—')+'</span><span class="badge b-chev" style="font-size:10px">חשב\' מס</span><span style="color:#3a6b10;font-size:12px">'+fd(taxInv.date_sent)+'</span><span style="font-weight:700">'+fc(taxInv.amount)+'</span><span class="pill" style="color:'+ts.c+';background:'+ts.bg+';font-size:11px;cursor:default">'+ts.l+'</span><span style="margin-right:auto;display:flex;gap:2px"><button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+taxInv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+taxInv.id+'\',\''+pid+'\')">🗑</button></span></div>';}
-        else if(ta.status==='paid'||ta.status==='accounting'){h+='<div class="inv-chain-sub need-tax" onclick="closeM();openI(null,\''+pid+'\',\''+ta.id+'\')"><span class="chain-arrow">└──</span><span>⚠️ שולם — דרושה הוצאת חשבונית מס</span><span style="margin-right:auto;font-size:11px;font-weight:700">לחץ להוסיף ▸</span></div>';}
+        else if(ta.status==='paid'||ta.status==='accounting'){h+='<div class="inv-chain-sub need-tax" onclick="convertToTax(\''+ta.id+'\')"><span class="chain-arrow">└──</span><span>⚠️ שולם — צור חשבונית מס</span><span style="margin-right:auto;font-size:11px;font-weight:700">💰 המר ▸</span></div>';}
         h+='</div>';
       });
     }
