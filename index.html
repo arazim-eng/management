@@ -177,6 +177,28 @@ var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l
 var IT=['הצעת מחיר','חשבון עסקה','חשבונית מס','קבלה'];
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+var PFCAT=['הזמנת עבודה','חשבון מאושר','הצעת מחיר','אחר'];
+/* client numbering codes — position in CL determines 2-digit code (01..) */
+function clientCode(cid){for(var i=0;i<CL.length;i++)if(CL[i].id===cid)return ('0'+(i+1)).slice(-2);return '00';}
+function projById(pid){for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===pid)return D.projects[j];return null;}
+function hasWO(p){return !!(p&&String(p.work_order_number||'').trim());}
+function projYear(p){var d=p&&p.created_at?new Date(p.created_at):new Date();return d.getFullYear();}
+/* next running serial for a client+year → e.g. 2026-01-0003 */
+function nextProjNumber(cid,year){var pre=year+'-'+clientCode(cid)+'-';var mx=0;D.projects.forEach(function(p){if(p.project_number&&p.project_number.indexOf(pre)===0){var n=parseInt(p.project_number.slice(pre.length),10);if(!isNaN(n)&&n>mx)mx=n;}});return pre+('000'+(mx+1)).slice(-4);}
+function backfillProjNumbers(){
+  if(!confirm('להקצות מספר לכל הפרויקטים שעדיין ללא מספר? (לפי שנת יצירה ולקוח)'))return;
+  var counters={};var updated=[];
+  D.projects.slice().sort(function(a,b){return new Date(a.created_at||0)-new Date(b.created_at||0);}).forEach(function(p){
+    if(p.project_number)return;
+    var y=projYear(p);var key=y+'-'+clientCode(p.client_id);
+    if(counters[key]===undefined){var pre0=key+'-';var mx=0;D.projects.forEach(function(q){if(q.project_number&&q.project_number.indexOf(pre0)===0){var n=parseInt(q.project_number.slice(pre0.length),10);if(!isNaN(n)&&n>mx)mx=n;}});counters[key]=mx;}
+    counters[key]++;
+    p.project_number=key+'-'+('000'+counters[key]).slice(-4);p.updated_at=new Date().toISOString();updated.push(p);
+  });
+  if(!updated.length){alert('לכל הפרויקטים כבר יש מספר.');return;}
+  svP();updated.forEach(function(p){cloudSave('projects',p);});go(D.view);
+  alert('הוקצו מספרים ל-'+updated.length+' פרויקטים.');
+}
 var D={view:'dashboard',projects:[],invoices:[],employees:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:''}};
 var SB_URL='https://kwmldvcsucbuvsjsiuaq.supabase.co';
 var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8';
@@ -240,7 +262,7 @@ function sbDelete(table,id){
 function openPDF(ref){
   if(!ref)return;
   if(ref.indexOf('http')===0){window.open(ref,'_blank');return;}
-  afetch(SB_URL+'/storage/v1/object/sign/invoices/'+encodeURIComponent(ref),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})})
+  afetch(SB_URL+'/storage/v1/object/sign/invoices/'+ref.split('/').map(encodeURIComponent).join('/'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})})
   .then(function(r){return r.json();})
   .then(function(d){if(d.signedURL)window.open(SB_URL+'/storage/v1'+d.signedURL,'_blank');else alert('לא ניתן לפתוח את הקובץ');})
   .catch(function(){alert('שגיאה בפתיחת הקובץ');});
@@ -295,6 +317,43 @@ function handlePDFUpload(invId,input){
     if(lbl){lbl.innerHTML='<a href="#" onclick="openPDF(\''+path+'\');return false" style="color:#3a6b10">✅ '+ex(file.name)+' — לצפייה</a>';}
   });
 }
+/* ── PROJECT FOLDER FILES (stored in `invoices` bucket under proj/<pid>/, metadata in projects.files jsonb) ── */
+function uploadProjFile(pid,cat,file,onDone){
+  var ext=(file.name.split('.').pop()||'bin').toLowerCase();
+  var fid=uid();var path='proj/'+pid+'/'+fid+'.'+ext;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    afetch(SB_URL+'/storage/v1/object/invoices/'+path,{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','x-upsert':'true'},body:e.target.result})
+    .then(function(r){
+      if(r.ok){
+        var p=projById(pid);if(!p){alert('פרויקט לא נמצא');return;}
+        if(!p.files)p.files=[];
+        p.files.push({id:fid,cat:cat,name:file.name,path:path,at:new Date().toISOString()});
+        svP();
+        afetch(SB_URL+'/rest/v1/projects?id=eq.'+pid,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({files:p.files})}).then(function(){showSync(true);});
+        if(onDone)onDone();
+      }else{alert('שגיאה בהעלאת הקובץ');}
+    }).catch(function(){alert('שגיאה בחיבור');});
+  };
+  reader.readAsArrayBuffer(file);
+}
+function handleProjFileUpload(pid,input){
+  var file=input.files[0];if(!file)return;
+  var cat=(document.getElementById('pf-cat')||{value:'אחר'}).value;
+  var lbl=document.getElementById('pf-status');if(lbl)lbl.textContent='מעלה '+file.name+'...';
+  uploadProjFile(pid,cat,file,function(){openPI(pid);});
+}
+function delProjFile(pid,fid){
+  var p=projById(pid);if(!p||!p.files)return;
+  var f=p.files.filter(function(x){return x.id===fid;})[0];if(!f)return;
+  if(!confirm('למחוק את "'+f.name+'"?'))return;
+  if(f.path)afetch(SB_URL+'/storage/v1/object/invoices/'+f.path,{method:'DELETE'});
+  p.files=p.files.filter(function(x){return x.id!==fid;});
+  svP();
+  afetch(SB_URL+'/rest/v1/projects?id=eq.'+pid,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({files:p.files})}).then(function(){showSync(true);});
+  openPI(pid);
+}
+function delIFromPI(iid,pid){if(!confirm('למחוק חשבונית זו מהתיק?'))return;D.invoices=D.invoices.filter(function(x){return x.id!==iid;});svI();cloudDel('invoices',iid);openPI(pid);}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 function fc(n){if(n===null||n===undefined||n==='')return'—';var x=Math.round(Number(n));if(isNaN(x))return'—';var s=String(x),r='';for(var i=s.length-1,c=0;i>=0;i--,c++){if(c>0&&c%3===0)r=','+r;r=s[i]+r;}return'\u20AA'+r;}
 function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString();}catch(ex){return d;}}
@@ -303,7 +362,22 @@ function gd(cid,did){var a=DP[cid]||[];for(var i=0;i<a.length;i++)if(a[i].id===d
 function gs(s){return STS[s]||STS.no_order;}
 function gi(s){return IST[s]||IST.draft;}
 function pInvs(pid){return D.invoices.filter(function(i){return i.project_id===pid;});}
-function pendI(){return D.invoices.filter(function(i){return i.status==='sent'||i.status==='accounting';});}
+/* CASHFLOW SET: what money is genuinely expected.
+   certain = חשבונית מס (sent/accounting).  expected = חשבון עסקה on a project WITH work order, not yet closed by a tax invoice.
+   excluded = עסקה ללא הזמנה (speculative), הצעת מחיר/קבלה, and anything flagged exclude_cashflow. */
+function invCertain(i){return i.invoice_type==='חשבונית מס';}
+function inCashflow(i){
+  if(i.exclude_cashflow)return false;
+  if(!(i.status==='sent'||i.status==='accounting'))return false;
+  if(!Number(i.amount))return false;
+  if(i.invoice_type==='חשבונית מס')return true;
+  if(i.invoice_type==='חשבון עסקה'){if(chainCloser(i.id))return false;return hasWO(projById(i.project_id));}
+  return false;
+}
+function cashflowInvs(){return D.invoices.filter(inCashflow);}
+/* חשבונות עסקה שנשלחו אך אינם בתזרים (ללא הזמנה / ספקולטיבי) — למעקב בלבד */
+function speculativePf(){return D.invoices.filter(function(i){return i.invoice_type==='חשבון עסקה'&&(i.status==='sent'||i.status==='accounting')&&Number(i.amount)&&!chainCloser(i.id)&&!hasWO(projById(i.project_id))&&i.project_id&&!i.exclude_cashflow;});}
+function pendI(){return cashflowInvs();}
 function alrts(){return D.projects.filter(function(p){return p.status!=='closed'&&(p.status==='no_order'||p.status==='pending_order');});}
 function asum(arr,f){var t=0;for(var i=0;i<arr.length;i++)t+=Number(arr[i][f])||0;return t;}
 function ex(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -313,22 +387,25 @@ function needsTaxInv(inv){if(inv.invoice_type!=='חשבון עסקה')return fal
 function getNeedTax(){return D.invoices.filter(function(i){return needsTaxInv(i);});}
 function getOpenTA(pid,excludeId){var closed={};D.invoices.filter(function(i){return i.closes_id;}).forEach(function(i){closed[i.closes_id]=1;});return D.invoices.filter(function(i){return i.project_id===pid&&i.invoice_type==='חשבון עסקה'&&!closed[i.id]&&i.id!==excludeId;});}
 /* ── FINANCIAL ── */
+/* MONEY RULE: only חשבונית מס counts as real revenue. חשבון עסקה is a request, tracked separately. */
 function projFin(pid,p){
   var invs=pInvs(pid);
-  var sub=asum(invs,'amount');
-  var paid=asum(invs.filter(function(i){return i.status==='paid';}
-),'amount');
-  var pend=asum(invs.filter(function(i){return i.status==='sent'||i.status==='accounting';}
-),'amount');
+  var tax=invs.filter(function(i){return i.invoice_type==='חשבונית מס';});
+  var sub=asum(tax,'amount');
+  var paid=asum(tax.filter(function(i){return i.status==='paid';}),'amount');
+  var pend=asum(tax.filter(function(i){return i.status==='sent'||i.status==='accounting';}),'amount');
+  /* open חשבונות עסקה = not yet closed by a tax invoice */
+  var openPf=invs.filter(function(i){return i.invoice_type==='חשבון עסקה'&&!chainCloser(i.id);});
+  var pfOpenSent=asum(openPf.filter(function(i){return i.status==='sent'||i.status==='accounting';}),'amount');
+  var pfPaidNeedsTax=asum(openPf.filter(function(i){return i.status==='paid';}),'amount');
+  var wo=hasWO(p);
+  var base={sub:sub,paid:paid,pend:pend,cnt:tax.length,invCnt:invs.length,pfOpenSent:pfOpenSent,pfPaidNeedsTax:pfPaidNeedsTax,pfCnt:openPf.length,wo:wo};
   if(p&&p.project_type==='contract'){
-    var rate=Number(p.contract_hourly_rate)||0;
-    var hrs=Number(p.contract_avg_hours)||0;
-    var monthly=rate*hrs;
-    return{sub:sub,paid:paid,pend:pend,cnt:invs.length,isContract:true,monthly:monthly,rate:rate,hrs:hrs};
+    var rate=Number(p.contract_hourly_rate)||0;var hrs=Number(p.contract_avg_hours)||0;
+    base.isContract=true;base.monthly=rate*hrs;base.rate=rate;base.hrs=hrs;return base;
   }
   var supervAmt=p?Number(p.supervision_amount)||0:0;
-  var rem=supervAmt-sub;
-  return{sub:sub,paid:paid,pend:pend,rem:rem,cnt:invs.length,isContract:false};
+  base.isContract=false;base.rem=supervAmt-sub;return base;
 }
 function getYears(){var ys={};D.projects.forEach(function(p){if(p.created_at)ys[new Date(p.created_at).getFullYear()]=1;});return Object.keys(ys).sort().reverse();}
 function getInvYears(){var ys={};D.invoices.forEach(function(i){if(i.date_sent)ys[new Date(i.date_sent).getFullYear()]=1;});return Object.keys(ys).sort().reverse();}
@@ -381,7 +458,7 @@ function sc(lbl,val,sub,col){return '<div class="scard"><div class="slbl">'+lbl+
 function vDash(){
   var active=D.projects.filter(function(p){return p.status!=='closed';}).length;
   var noOrd=D.projects.filter(function(p){return p.status==='no_order';}).length;
-  var pI=pendI();var curYr=new Date().getFullYear();var paidI=D.invoices.filter(function(i){return i.status==='paid'&&i.date_paid&&new Date(i.date_paid).getFullYear()===curYr;});var al=alrts();var nt=getNeedTax();
+  var pI=pendI();var curYr=new Date().getFullYear();var paidI=D.invoices.filter(function(i){return i.invoice_type==='חשבונית מס'&&i.status==='paid'&&i.date_paid&&new Date(i.date_paid).getFullYear()===curYr;});var al=alrts();var nt=getNeedTax();
   var h='<div class="stats4">'+sc('פרויקטים פעילים',active,noOrd+' ללא הזמנת עבודה','')+sc('ממתין לתשלום',fc(asum(pI,'amount')),pI.length+' חשבוניות','#834e0a')+sc('שולם השנה',fc(asum(paidI,'amount')),'','#3a6b10')+sc('דרושה חשבונית מס',nt.length,'חשבונות עסקה ממתינים',nt.length?'#b02':'')+'</div>';
   var un=unassigned();
   if(un.length){h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000;margin-bottom:10px"><span>⚠️ <strong>'+un.length+' חשבוניות ללא שיוך לפרויקט</strong> (נוצרו אוטומטית מהמייל) — סה"כ '+fc(asum(un,'amount'))+'</span><span class="al-act" style="color:#b02" onclick="go(\'cashflow\')">טפל עכשיו ▸</span></div>';}
@@ -402,7 +479,7 @@ function vProj(){
   var yrs=getYears();var curYr=String(new Date().getFullYear());if(yrs.indexOf(curYr)<0)yrs.unshift(curYr);
   var yrO='<option value="">כל השנים</option>';for(var i=0;i<yrs.length;i++)yrO+='<option value="'+yrs[i]+'"'+(D.f.yr===yrs[i]?' selected':'')+'>'+yrs[i]+'</option>';
   var totSup=0,totSub=0;ps.forEach(function(p){if(p.project_type!=='contract')totSup+=Number(p.supervision_amount)||0;var f=projFin(p.id,p);totSub+=f.sub;});
-  var h='<div class="fbar"><select onchange="sf(\'cl\',this.value)">'+clO+'</select><select onchange="sf(\'st\',this.value)">'+stO+'</select><select onchange="sf(\'en\',this.value)"><option value="">עוסק+חברה</option><option value="עוסק"'+(D.f.en==='עוסק'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(D.f.en==='חברה'?' selected':'')+'>חברה בע"מ</option></select><select onchange="sf(\'yr\',this.value)">'+yrO+'</select><input type="text" placeholder="שם / הזמנה / איש קשר" value="'+ex(D.f.q)+'" oninput="sf(\'q\',this.value)"><span style="font-size:12px;color:#888;margin-right:auto">'+ps.length+' | פיקוח: '+fc(totSup)+' | הוגש: '+fc(totSub)+'</span>'+(D.f.cl||D.f.st||D.f.en||D.f.yr||D.f.q?'<button class="btn btn-sm" onclick="cf()">✕</button>':'')+'</div>';
+  var h='<div class="fbar"><select onchange="sf(\'cl\',this.value)">'+clO+'</select><select onchange="sf(\'st\',this.value)">'+stO+'</select><select onchange="sf(\'en\',this.value)"><option value="">עוסק+חברה</option><option value="עוסק"'+(D.f.en==='עוסק'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(D.f.en==='חברה'?' selected':'')+'>חברה בע"מ</option></select><select onchange="sf(\'yr\',this.value)">'+yrO+'</select><input type="text" placeholder="שם / הזמנה / איש קשר" value="'+ex(D.f.q)+'" oninput="sf(\'q\',this.value)"><span style="font-size:12px;color:#888;margin-right:auto">'+ps.length+' | פיקוח: '+fc(totSup)+' | חשב\' מס: '+fc(totSub)+'</span>'+(D.projects.some(function(p){return !p.project_number;})?'<button class="btn btn-sm btn-amber" onclick="backfillProjNumbers()" title="הקצה מספר לפרויקטים קיימים">#️⃣ מספֵּר</button>':'')+(D.f.cl||D.f.st||D.f.en||D.f.yr||D.f.q?'<button class="btn btn-sm" onclick="cf()">✕</button>':'')+'</div>';
   h+='<div class="tbl-box"><table><thead><tr><th>לקוח / מחלקה</th><th>פרויקט</th><th>הזמנה</th><th>ישות</th><th>סכום / תעריף</th><th>מצב כספי</th><th>סטטוס</th><th></th></tr></thead><tbody>';
   if(!ps.length)h+='<tr><td colspan="8" class="empty">אין פרויקטים. לחץ "+ פרויקט חדש".</td></tr>';
   else for(var pi=0;pi<ps.length;pi++){
@@ -411,11 +488,17 @@ function vProj(){
     if(p.project_type==='contract'){var rate=Number(p.contract_hourly_rate)||0;var hrs=Number(p.contract_avg_hours)||0;amtCell='<span class="badge b-cont">חוזה</span><br><span style="font-size:12px;color:#555">'+fc(rate)+'/שעה × '+hrs+'ש\'<br>='+fc(rate*hrs)+'/חודש</span>';}
     else{amtCell='<strong>'+fc(p.supervision_amount)+'</strong>';}
     var finHtml='<div class="fin-cell">';
-    if(fin.cnt===0){finHtml+='<span style="color:#bbb">אין חשבוניות</span>';}
-    else{finHtml+='הוגש: <strong>'+fc(fin.sub)+'</strong> ('+fin.cnt+')';if(fin.paid)finHtml+='<br><span class="fin-ok">שולם: '+fc(fin.paid)+'</span>';if(fin.pend)finHtml+='<br><span class="fin-warn">ממתין: '+fc(fin.pend)+'</span>';if(!fin.isContract&&p.supervision_amount&&fin.sub>0){var pct=Math.min(100,Math.round(fin.sub/(Number(p.supervision_amount)||1)*100));if(fin.rem!==0)finHtml+='<br><span class="'+(fin.rem>0?'fin-warn':fin.rem<0?'fin-neg':'')+'">נשאר: '+fc(fin.rem)+'</span>';finHtml+='<div class="prog-bar"><div class="prog-fill" style="width:'+pct+'%"></div></div>';}if(nt.length)finHtml+='<br><span style="color:#b02;font-size:11px">⚠️ '+nt.length+' חשבונית מס חסרה</span>';}
+    if(fin.invCnt===0){finHtml+='<span style="color:#bbb">אין חשבוניות</span>';}
+    else{
+      if(fin.cnt){finHtml+='חשב\' מס: <strong>'+fc(fin.sub)+'</strong> ('+fin.cnt+')';if(fin.paid)finHtml+=' <span class="fin-ok">✓ '+fc(fin.paid)+'</span>';if(fin.pend)finHtml+='<br><span class="fin-warn">ממתין: '+fc(fin.pend)+'</span>';}
+      else{finHtml+='<span style="color:#bbb">אין חשבונית מס</span>';}
+      if(fin.pfOpenSent){finHtml+='<br><span style="color:'+(fin.wo?'#1860a8':'#999')+';font-size:11px">📄 עסקה פתוחה: '+fc(fin.pfOpenSent)+(fin.wo?' (עם הזמנה)':' (ללא הזמנה)')+'</span>';}
+      if(!fin.isContract&&p.supervision_amount&&fin.sub>0){var pct=Math.min(100,Math.round(fin.sub/(Number(p.supervision_amount)||1)*100));if(fin.rem!==0)finHtml+='<br><span class="'+(fin.rem>0?'fin-warn':fin.rem<0?'fin-neg':'')+'">נשאר לחייב: '+fc(fin.rem)+'</span>';finHtml+='<div class="prog-bar"><div class="prog-fill" style="width:'+pct+'%"></div></div>';}
+      if(nt.length)finHtml+='<br><span style="color:#b02;font-size:11px">⚠️ '+nt.length+' חשבונית מס חסרה</span>';
+    }
     finHtml+='</div>';
     h+='<tr><td><div style="display:flex;align-items:center;gap:5px;font-weight:600"><span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(c.name||p.client_id)+'</div><div style="font-size:11px;color:#888;padding-right:13px">'+ex(d.name||'')+'</div></td>';
-    h+='<td><div style="font-weight:600">'+ex(p.name)+'</div>'+(p.contact_name?'<div style="font-size:11px;color:#888">'+ex(p.contact_name)+'</div>':'')+'</td>';
+    h+='<td>'+(p.project_number?'<div style="font-size:10px;color:#1860a8;font-weight:700;letter-spacing:.03em">'+ex(p.project_number)+'</div>':'')+'<div style="font-weight:600">'+ex(p.name)+'</div>'+(p.contact_name?'<div style="font-size:11px;color:#888">'+ex(p.contact_name)+'</div>':'')+'</td>';
     h+='<td>'+(p.work_order_number?'<span class="wo-ok">'+ex(p.work_order_number)+'</span>':'<span class="wo-no">—</span>')+'</td>';
     h+='<td><span class="badge '+(p.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(p.entity||'עוסק')+'</span></td>';
     h+='<td>'+amtCell+'</td><td>'+finHtml+'</td>';
@@ -430,7 +513,7 @@ function cf(){D.f={cl:'',st:'',en:'',yr:'',q:''};go('projects');}
 function vInv(){
   var yr=D.f.yr;
   var sorted=D.invoices.filter(function(i){if(yr&&i.date_sent&&new Date(i.date_sent).getFullYear()!==parseInt(yr))return false;return true;}).sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at);});
-  var pI=pendI();var paidI=D.invoices.filter(function(i){return i.status==='paid';});var nt=getNeedTax();
+  var pI=pendI();var paidI=D.invoices.filter(function(i){return i.invoice_type==='חשבונית מס'&&i.status==='paid';});var nt=getNeedTax();
   var yrs=getInvYears();var curYr=String(new Date().getFullYear());if(yrs.indexOf(curYr)<0)yrs.unshift(curYr);
   var yrO='<option value="">כל השנים</option>';for(var i=0;i<yrs.length;i++)yrO+='<option value="'+yrs[i]+'"'+(D.f.yr===yrs[i]?' selected':'')+'>'+yrs[i]+'</option>';
   var h='<div class="stats4">'+sc('סה"כ חשבוניות',D.invoices.length,'','')+sc('ממתין לתשלום',fc(asum(pI,'amount')),pI.length+' חשבוניות','#834e0a')+sc('שולם סה"כ',fc(asum(paidI,'amount')),'','#3a6b10')+sc('דרושה חשבונית מס',nt.length,'ממתינים להוצאה',nt.length?'#b02':'')+'</div>';
@@ -478,7 +561,7 @@ function vAl(){
 /* ── CASHFLOW (שוטף+30) ── */
 function invBaseDate(i){return i.date_sent||(i.created_at?i.created_at.slice(0,10):null);}
 function dueDate(i){var b=invBaseDate(i);if(!b)return null;var d=new Date(b);return new Date(d.getFullYear(),d.getMonth()+2,0);}
-function pendingInvs(){return D.invoices.filter(function(i){return (i.status==='sent'||i.status==='accounting')&&Number(i.amount)&&!i.exclude_cashflow;});}
+function pendingInvs(){return cashflowInvs();}
 function unassigned(){return D.invoices.filter(function(i){return !i.project_id&&i.invoice_type!=='הצעת מחיר';});}
 function overdueInvs(){var t=new Date();return pendingInvs().filter(function(i){var d=dueDate(i);return d&&d<t;});}
 function invClient(i){if(i.project_id){for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id)return gc(D.projects[j].client_id);}return null;}
@@ -496,19 +579,23 @@ function vCash(){
   var totPend=asum(pend,'amount'),totOver=asum(overdue,'amount');
   var em=0,enx=0;var cm=today.getMonth(),cy=today.getFullYear();
   pend.forEach(function(i){var d=dueDate(i);if(!d)return;if(d.getFullYear()===cy&&d.getMonth()===cm)em+=Number(i.amount)||0;var nx=new Date(cy,cm+1,1);if(d.getFullYear()===nx.getFullYear()&&d.getMonth()===nx.getMonth())enx+=Number(i.amount)||0;});
-  var h='<div class="info-bar">💡 תנאי התשלום: <strong>שוטף + 30</strong> — חשבונית שהוגשה החודש צפויה להיפרע עד סוף החודש הבא.</div>';
-  h+='<div class="stats4">'+sc('סה"כ ממתין לתשלום',fc(totPend),pend.length+' חשבוניות','#1860a8')+sc('באיחור (עבר המועד)',fc(totOver),overdue.length+' חשבוניות',totOver?'#b02':'#3a6b10')+sc('צפוי החודש',fc(em),MONTHS[cm],'#3a6b10')+sc('צפוי חודש הבא',fc(enx),MONTHS[(cm+1)%12],'#3a6b10')+'</div>';
+  var certain=pend.filter(invCertain),expected=pend.filter(function(i){return !invCertain(i);});
+  var totCertain=asum(certain,'amount'),totExpected=asum(expected,'amount');
+  var spec=speculativePf(),totSpec=asum(spec,'amount');
+  var h='<div class="info-bar">💡 <strong>שוטף + 30</strong> — חשבונית שהוגשה החודש צפויה להיפרע עד סוף החודש הבא. &nbsp;|&nbsp; 🟢 <strong>ודאי</strong> = חשבונית מס &nbsp; 🟡 <strong>צפוי</strong> = חשבון עסקה על פרויקט עם הזמנת עבודה. &nbsp; צפוי '+MONTHS[cm]+': <strong>'+fc(em)+'</strong> · '+MONTHS[(cm+1)%12]+': <strong>'+fc(enx)+'</strong></div>';
+  h+='<div class="stats4">'+sc('סה"כ בדרך אליי',fc(totPend),pend.length+' חשבוניות','#1860a8')+sc('🟢 ודאי (חשב\' מס)',fc(totCertain),certain.length+' חשבוניות','#3a6b10')+sc('🟡 צפוי (עסקה+הזמנה)',fc(totExpected),expected.length+' חשבונות','#834e0a')+sc('⏰ באיחור',fc(totOver),overdue.length+' חשבוניות',totOver?'#b02':'#3a6b10')+'</div>';
+  if(spec.length){h+='<div class="al" style="background:#f5f3ef;border-color:#ddd;color:#666;margin-bottom:12px"><span>📄 <strong>'+spec.length+' חשבונות עסקה ללא הזמנת עבודה</strong> — סה"כ '+fc(totSpec)+' — <em>לא נספרים בתזרים</em> (ספקולטיביים / להוצאת הזמנה). מופיעים בתיק הפרויקט.</span></div>';}
   if(un.length){
     h+='<div class="sec-hdr" style="color:#b02">⚠️ חשבוניות ללא שיוך לפרויקט ('+un.length+')</div>';
     un.forEach(function(i){var s2=gi(i.status);h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span><strong>'+ex(i.invoice_type||'')+' '+ex(i.invoice_number||'—')+'</strong> | '+fd(invBaseDate(i))+'</span><span class="pill" style="color:'+s2.c+';background:'+s2.bg+';cursor:default">'+s2.l+'</span><span style="font-weight:700;margin-right:auto">'+fc(i.amount)+'</span><span class="al-act" style="color:#b02" onclick="openI(\''+i.id+'\',null)">שייך לפרויקט ▸</span></div>';});
   }
   var byMonth={};
-  pend.forEach(function(i){var d=dueDate(i);if(!d)return;var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);if(d<today)k='overdue';if(!byMonth[k])byMonth[k]={sum:0,cnt:0};byMonth[k].sum+=Number(i.amount)||0;byMonth[k].cnt++;});
+  pend.forEach(function(i){var d=dueDate(i);if(!d)return;var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);if(d<today)k='overdue';if(!byMonth[k])byMonth[k]={sum:0,cnt:0,cert:0,exp:0};var a=Number(i.amount)||0;byMonth[k].sum+=a;byMonth[k].cnt++;if(invCertain(i))byMonth[k].cert+=a;else byMonth[k].exp+=a;});
   var keys=Object.keys(byMonth).filter(function(k){return k!=='overdue';}).sort();
-  h+='<div class="sec-hdr" style="margin-top:14px">📅 תחזית תקבולים לפי חודש (שוטף+30)</div><div class="tbl-box"><table><thead><tr><th>חודש</th><th>חשבוניות</th><th>סכום צפוי</th></tr></thead><tbody>';
-  if(byMonth['overdue'])h+='<tr><td style="color:#b02;font-weight:700">⏰ באיחור — לגבייה מיידית</td><td>'+byMonth['overdue'].cnt+'</td><td style="font-weight:700;color:#b02">'+fc(byMonth['overdue'].sum)+'</td></tr>';
-  if(!keys.length&&!byMonth['overdue'])h+='<tr><td colspan="3" class="empty">אין חשבוניות ממתינות 🎉</td></tr>';
-  keys.forEach(function(k){var pr=k.split('-');h+='<tr><td style="font-weight:600">'+MONTHS[parseInt(pr[1],10)-1]+' '+pr[0]+'</td><td>'+byMonth[k].cnt+'</td><td style="font-weight:700;color:#1860a8">'+fc(byMonth[k].sum)+'</td></tr>';});
+  h+='<div class="sec-hdr" style="margin-top:14px">📅 תחזית תקבולים לפי חודש (שוטף+30)</div><div class="tbl-box"><table><thead><tr><th>חודש</th><th>חשבוניות</th><th>🟢 ודאי</th><th>🟡 צפוי</th><th>סה"כ</th></tr></thead><tbody>';
+  if(byMonth['overdue'])h+='<tr><td style="color:#b02;font-weight:700">⏰ באיחור — לגבייה מיידית</td><td>'+byMonth['overdue'].cnt+'</td><td style="color:#3a6b10">'+fc(byMonth['overdue'].cert)+'</td><td style="color:#834e0a">'+fc(byMonth['overdue'].exp)+'</td><td style="font-weight:700;color:#b02">'+fc(byMonth['overdue'].sum)+'</td></tr>';
+  if(!keys.length&&!byMonth['overdue'])h+='<tr><td colspan="5" class="empty">אין חשבוניות ממתינות 🎉</td></tr>';
+  keys.forEach(function(k){var pr=k.split('-');h+='<tr><td style="font-weight:600">'+MONTHS[parseInt(pr[1],10)-1]+' '+pr[0]+'</td><td>'+byMonth[k].cnt+'</td><td style="color:#3a6b10">'+fc(byMonth[k].cert)+'</td><td style="color:#834e0a">'+fc(byMonth[k].exp)+'</td><td style="font-weight:700;color:#1860a8">'+fc(byMonth[k].sum)+'</td></tr>';});
   h+='</tbody></table></div>';
   var byClient={};
   pend.forEach(function(i){var c=invClient(i);var k=c?c.id:'__none';if(!byClient[k]){byClient[k]={c:c,sum:0,cnt:0,oldest:null};}byClient[k].sum+=Number(i.amount)||0;byClient[k].cnt++;var b=invBaseDate(i);if(b&&(!byClient[k].oldest||b<byClient[k].oldest))byClient[k].oldest=b;});
@@ -522,8 +609,8 @@ function vCash(){
   if(!sorted.length)h+='<tr><td colspan="7" class="empty">אין חשבוניות פתוחות 🎉</td></tr>';
   sorted.forEach(function(i){
     var p2=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p2=D.projects[j];break;}
-    var c2=invClient(i);var d=dueDate(i);var late=d&&d<today;var days=d?Math.round((today-d)/86400000):0;var s2=gi(i.status);
-    h+='<tr><td style="font-weight:700">'+(i.file_url?'<a href="#" onclick="openPDF(\''+i.file_url+'\');return false">📄</a> ':'')+ex(i.invoice_number||'—')+'</td>';
+    var c2=invClient(i);var d=dueDate(i);var late=d&&d<today;var days=d?Math.round((today-d)/86400000):0;var s2=gi(i.status);var cert=invCertain(i);
+    h+='<tr><td style="font-weight:700"><span title="'+(cert?'חשבונית מס — ודאי':'חשבון עסקה עם הזמנה — צפוי')+'">'+(cert?'🟢':'🟡')+'</span> '+(i.file_url?'<a href="#" onclick="openPDF(\''+i.file_url+'\');return false">📄</a> ':'')+ex(i.invoice_number||'—')+'<div style="font-size:10px;color:#aaa;font-weight:400">'+ex(i.invoice_type||'')+'</div></td>';
     h+='<td><div style="font-weight:600">'+(p2?ex(p2.name):'<span style="color:#b02">⚠️ לשיוך</span>')+'</div><div style="font-size:11px;color:#888">'+(c2?ex(c2.name):'')+'</div></td>';
     h+='<td style="font-size:12px;color:#888">'+fd(invBaseDate(i))+'</td>';
     h+='<td>'+(d?('<span style="font-weight:600;color:'+(late?'#b02':'#3a6b10')+'">'+fd(d)+(late?' ⏰ +'+days+' ימים':'')+'</span>'):'—')+'</td>';
@@ -623,7 +710,7 @@ function openP(pid){
   var stO='';for(var k in STS)stO+='<option value="'+k+'"'+((p?p.status:'no_order')===k?' selected':'')+'>'+STS[k].l+'</option>';
   var isCont=p&&p.project_type==='contract';
   var rate=p?p.contract_hourly_rate||'':'';var hrs=p?p.contract_avg_hours||'':'';
-  var h='<div class="mhdr"><span class="mtitle">'+(p?'עריכת פרויקט':'פרויקט חדש')+'</span><button class="mx" onclick="closeM()">✕</button></div>';
+  var h='<div class="mhdr"><span class="mtitle">'+(p?'עריכת פרויקט':'פרויקט חדש')+(p&&p.project_number?' <span style="color:#1860a8;font-size:12px;font-weight:700;letter-spacing:.03em">'+ex(p.project_number)+'</span>':'')+'</span><button class="mx" onclick="closeM()">✕</button></div>';
   h+='<div class="fg2">';
   h+='<div class="fg"><label class="flbl">סוג פרויקט</label><select class="fs" id="p-type" onchange="toggleProjType()"><option value="regular"'+(!isCont?' selected':'')+'>פרויקט רגיל (% פיקוח)</option><option value="contract"'+(isCont?' selected':'')+'>חוזה חודשי (לפי שעות)</option></select></div>';
   h+='<div class="fg"><label class="flbl">ישות</label><select class="fs" id="p-en"><option value="עוסק"'+(!p||p.entity!=='חברה'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(p&&p.entity==='חברה'?' selected':'')+'>חברה בע"מ</option></select></div>';
@@ -663,7 +750,7 @@ function svP2(pid){
   if(ptype==='regular'){data.scope_amount=parseFloat(document.getElementById('p-sc').value)||null;data.supervision_pct=parseFloat(document.getElementById('p-pc').value)||null;data.supervision_amount=parseFloat(document.getElementById('p-am').value)||null;}
   else{data.contract_start=document.getElementById('p-cs').value||null;data.contract_end=document.getElementById('p-ce').value||null;data.contract_hourly_rate=parseFloat(document.getElementById('p-chr').value)||null;data.contract_avg_hours=parseFloat(document.getElementById('p-cah').value)||null;data.supervision_amount=null;}
   if(pid){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i]=Object.assign({},D.projects[i],data);break;}}
-  else{data.id=uid();data.created_at=new Date().toISOString();D.projects.push(data);}
+  else{data.id=uid();data.created_at=new Date().toISOString();data.project_number=nextProjNumber(data.client_id,new Date().getFullYear());data.files=[];D.projects.push(data);}
   svP();var _pd=pid?D.projects.filter(function(x){return x.id===pid;})[0]:D.projects[D.projects.length-1];if(_pd)cloudSave('projects',_pd);closeM();go(D.view);
 }
 function delP(pid,fromM){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p||!confirm('למחוק "'+p.name+'"?'))return;D.projects=D.projects.filter(function(x){return x.id!==pid;});svP();cloudDel('projects',pid);closeM();go('projects');}
@@ -683,9 +770,19 @@ function onInvTypeChange(){
       closesWrap.innerHTML='<div class="fg w2"><label class="flbl">📎 סוגרת חשבון עסקה (לשרשרת)</label><select class="fs" id="i-cl">'+opts+'</select></div>';
     }else{closesWrap.innerHTML='';}
   }
+  /* חשבון עסקה → show "submitted to municipality" fields */
+  var mw=document.getElementById('muni-wrap');
+  if(mw){
+    if(tp==='חשבון עסקה'){
+      var iv=window._editInv||{};
+      var p=projById(pid);var woNote=p?(hasWO(p)?'✅ לפרויקט יש הזמנת עבודה → ייחשב בתזרים (צפוי)':'⚠️ אין הזמנת עבודה → לא ייחשב בתזרים (תיק בלבד)'):'';
+      mw.innerHTML='<div class="fg w2" style="background:#f0f6fc;border:1px solid #cfe2f5;border-radius:7px;padding:10px 12px;flex-direction:column;gap:8px"><div style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="i-sm" style="width:16px;height:16px"'+(iv.submitted_to_muni?' checked':'')+'><label for="i-sm" style="font-size:12px;color:#1c4f80;cursor:pointer;font-weight:600">🏛️ הוגש לעירייה</label><input class="fi" id="i-smd" type="date" style="margin-right:auto;max-width:170px" value="'+ex(iv.muni_submit_date||'')+'"></div>'+(woNote?'<div style="font-size:11px;color:#666">'+woNote+'</div>':'')+'</div>';
+    }else{mw.innerHTML='';}
+  }
 }
 function openI(iid,prefPid,prefClosesId){
   var inv=null;if(iid)for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===iid){inv=D.invoices[i];break;}
+  window._editInv=inv||{};
   var pO='<option value="">— בחר פרויקט —</option>';for(var i=0;i<D.projects.length;i++){var p=D.projects[i];var c=gc(p.client_id);var sel=(inv&&inv.project_id===p.id)||(!inv&&prefPid===p.id);pO+='<option value="'+p.id+'"'+(sel?' selected':'')+'>'+ex(p.name)+' ('+ex(c.name||'')+')</option>';}
   var tO='';for(var i=0;i<IT.length;i++)tO+='<option value="'+IT[i]+'"'+(inv&&inv.invoice_type===IT[i]?' selected':'')+'>'+IT[i]+'</option>';
   var stO='';for(var k in IST)stO+='<option value="'+k+'"'+((inv?inv.status:'draft')===k?' selected':'')+'>'+IST[k].l+'</option>';
@@ -700,6 +797,7 @@ function openI(iid,prefPid,prefClosesId){
   h+='<div class="fg"><label class="flbl">סטטוס תשלום</label><select class="fs" id="i-st">'+stO+'</select></div>';
   h+='<div class="fg"><label class="flbl">תאריך תשלום</label><input class="fi" id="i-dp" type="date" value="'+(inv?inv.date_paid||'':'')+'"></div>';
   h+='<div class="fg w2" style="flex-direction:row;align-items:center;gap:7px;background:#faf8f5;border:1px solid #eee;border-radius:7px;padding:8px 12px"><input type="checkbox" id="i-ncf" style="width:16px;height:16px"'+(inv&&inv.exclude_cashflow?' checked':'')+'><label for="i-ncf" style="font-size:12px;color:#5a3200;cursor:pointer">📋 חשבון להזמנת עבודה בלבד — <strong>לא לספור בתזרים</strong> (לא תקבול אמיתי)</label></div>';
+  h+='<div class="fg w2" id="muni-wrap"></div>';
   h+='<div class="fg w2" id="closes-wrap"></div>';
   h+='<div class="fg w2"><label class="flbl">הערות</label><textarea class="fta" id="i-nt">'+ex(inv?inv.notes||'':'')+'</textarea></div>';
   h+='<div class="fg w2"><label class="flbl">📎 קובץ PDF</label>';
@@ -721,6 +819,9 @@ function svI2(iid){
   var data={project_id:document.getElementById('i-pr').value,invoice_number:document.getElementById('i-nm').value.trim(),invoice_type:document.getElementById('i-tp').value,amount:parseFloat(document.getElementById('i-am').value)||null,entity:document.getElementById('i-en').value,date_sent:document.getElementById('i-ds').value||null,date_paid:document.getElementById('i-dp').value||null,status:document.getElementById('i-st').value,notes:document.getElementById('i-nt').value.trim(),updated_at:new Date().toISOString()};
   var clEl=document.getElementById('i-cl');data.closes_id=clEl?clEl.value||null:null;
   var ncfEl=document.getElementById('i-ncf');data.exclude_cashflow=ncfEl?ncfEl.checked:false;
+  var smEl=document.getElementById('i-sm');var smdEl=document.getElementById('i-smd');
+  if(data.invoice_type==='חשבון עסקה'){data.submitted_to_muni=smEl?smEl.checked:false;data.muni_submit_date=(smdEl&&smdEl.value)||null;}
+  else{data.submitted_to_muni=false;data.muni_submit_date=null;}
   if(iid){for(var i=0;i<D.invoices.length;i++)if(D.invoices[i].id===iid){D.invoices[i]=Object.assign({},D.invoices[i],data);break;}}
   else{data.id=uid();data.created_at=new Date().toISOString();D.invoices.push(data);}
   svI();var _id2=iid?D.invoices.filter(function(x){return x.id===iid;})[0]:D.invoices[D.invoices.length-1];if(_id2)cloudSave('invoices',_id2);closeM();go(D.view);
@@ -730,13 +831,15 @@ function delI(iid,fromM){if(!confirm('למחוק חשבונית זו?'))return;D
 function openPI(pid){
   var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}
   if(!p)return;
-  var invs=pInvs(pid);var fin=projFin(pid,p);var isCont=p.project_type==='contract';
-  var h='<div class="mhdr"><span class="mtitle">חשבוניות — '+ex(p.name)+'</span><button class="mx" onclick="closeM()">✕</button></div>';
+  var invs=pInvs(pid);var fin=projFin(pid,p);var isCont=p.project_type==='contract';var c=gc(p.client_id);
+  var h='<div class="mhdr"><span class="mtitle">📁 תיק פרויקט — '+ex(p.name)+'</span><button class="mx" onclick="closeM()">✕</button></div>';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin:-8px 0 12px;font-size:12px;color:#888">'+(p.project_number?'<span style="color:#1860a8;font-weight:700;letter-spacing:.03em">'+ex(p.project_number)+'</span>·':'')+'<span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(c.name||'')+(p.work_order_number?' · הזמנה '+ex(p.work_order_number):' · <span style="color:#834e0a">ללא הזמנת עבודה</span>')+'</div>';
   // Financial summary
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr '+(isCont?'1fr':'1fr')+';gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #eee">';
   if(isCont){var monthly=(Number(p.contract_hourly_rate)||0)*(Number(p.contract_avg_hours)||0);h+='<div style="text-align:center"><div style="font-size:10px;color:#888">תעריף/שעה</div><div style="font-weight:700">'+fc(p.contract_hourly_rate)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">שעות/חודש</div><div style="font-weight:700">'+( p.contract_avg_hours||'—')+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">הכנסה/חודש</div><div style="font-weight:700;color:#1860a8">'+fc(monthly)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">הוגש סה"כ</div><div style="font-weight:700;color:#3a6b10">'+fc(fin.sub)+'</div></div>';}
-  else{h+='<div style="text-align:center"><div style="font-size:10px;color:#888">היקף פיקוח</div><div style="font-weight:700">'+fc(p.supervision_amount)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">הוגש</div><div style="font-weight:700;color:#1860a8">'+fc(fin.sub)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">שולם</div><div style="font-weight:700;color:#3a6b10">'+fc(fin.paid)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">נשאר</div><div style="font-weight:700;color:'+(fin.rem>0?'#834e0a':fin.rem<0?'#b02':'#888')+'">'+fc(fin.rem)+'</div></div>';}
+  else{h+='<div style="text-align:center"><div style="font-size:10px;color:#888">היקף פיקוח</div><div style="font-weight:700">'+fc(p.supervision_amount)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">חשב\' מס הוגש</div><div style="font-weight:700;color:#1860a8">'+fc(fin.sub)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">שולם</div><div style="font-weight:700;color:#3a6b10">'+fc(fin.paid)+'</div></div>';h+='<div style="text-align:center"><div style="font-size:10px;color:#888">נשאר לחייב</div><div style="font-weight:700;color:'+(fin.rem>0?'#834e0a':fin.rem<0?'#b02':'#888')+'">'+fc(fin.rem)+'</div></div>';}
   h+='</div>';
+  if(fin.pfOpenSent||fin.pfPaidNeedsTax){h+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin:-6px 0 12px;color:#666">';if(fin.pfOpenSent)h+='<span>📄 חשבונות עסקה פתוחים: <strong style="color:'+(fin.wo?'#1860a8':'#999')+'">'+fc(fin.pfOpenSent)+'</strong> '+(fin.wo?'(צפוי בתזרים)':'(ללא הזמנה — לא בתזרים)')+'</span>';if(fin.pfPaidNeedsTax)h+='<span style="color:#b02">🧾 עסקה ששולמה וממתינה לחשבונית מס: <strong>'+fc(fin.pfPaidNeedsTax)+'</strong></span>';h+='</div>';}
   // Contract monthly calendar
   if(isCont&&p.contract_start&&p.contract_end){var months=contractMonths(p);h+='<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:#3a6b10;margin-bottom:7px">📅 לוח חודשי</div><div class="months-grid">';for(var mi=0;mi<months.length;mi++){var mo=months[mi];if(mo.future){h+='<div class="month-cell month-future"><div class="month-name">'+MONTHS[mo.m].slice(0,3)+'</div><div class="month-inv">'+mo.y+'</div></div>';}else if(mo.invs.length){var paid=mo.invs.filter(function(i){return i.status==='paid';}).length>0;h+='<div class="month-cell month-ok"><div class="month-name">'+MONTHS[mo.m].slice(0,3)+'</div><div class="month-inv">'+mo.y+'<br>'+fc(asum(mo.invs,'amount'))+(paid?' ✓':'')+'</div></div>';}else{h+='<div class="month-cell month-miss" onclick="closeM();openI(null,\''+pid+'\')"><div class="month-name">'+MONTHS[mo.m].slice(0,3)+'</div><div class="month-inv">'+mo.y+'<br>⚠️ חסר</div></div>';}}h+='</div></div>';}
   // Invoice chain view
@@ -752,17 +855,33 @@ function openPI(pid){
       transactionInvs.forEach(function(ta){
         var s=gi(ta.status);var taxInv=taxInvs[ta.id];
         h+='<div class="inv-chain">';
-        h+='<div class="inv-chain-main">'+(ta.file_url?'<a href="#" onclick="openPDF(\''+ta.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button></div>';
-        if(taxInv){var ts=gi(taxInv.status);h+='<div class="inv-chain-sub has-tax"><span class="chain-arrow">└──</span><span style="font-weight:700;min-width:70px">'+ex(taxInv.invoice_number||'—')+'</span><span class="badge b-chev" style="font-size:10px">חשב\' מס</span><span style="color:#3a6b10;font-size:12px">'+fd(taxInv.date_sent)+'</span><span style="font-weight:700">'+fc(taxInv.amount)+'</span><span class="pill" style="color:'+ts.c+';background:'+ts.bg+';font-size:11px;cursor:default">'+ts.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+taxInv.id+'\',null)">✏️</button></div>';}
+        var muniTag=ta.submitted_to_muni?'<span style="font-size:10px;color:#1c4f80;background:#e8f1fb;border-radius:4px;padding:1px 5px" title="הוגש לעירייה">🏛️ הוגש'+(ta.muni_submit_date?' '+fd(ta.muni_submit_date):'')+'</span>':'<span style="font-size:10px;color:#a55;background:#fdeded;border-radius:4px;padding:1px 5px">לא הוגש לעירייה</span>';
+        h+='<div class="inv-chain-main">'+(ta.file_url?'<a href="#" onclick="openPDF(\''+ta.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(ta.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">ח. עסקה</span><span style="color:#888;font-size:12px">'+fd(ta.date_sent)+'</span>'+muniTag+'<span style="font-weight:700;color:#555">'+fc(ta.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><span style="margin-right:auto;display:flex;gap:2px"><button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+ta.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+ta.id+'\',\''+pid+'\')">🗑</button></span></div>';
+        if(taxInv){var ts=gi(taxInv.status);h+='<div class="inv-chain-sub has-tax"><span class="chain-arrow">└──</span><span style="font-weight:700;min-width:70px">'+ex(taxInv.invoice_number||'—')+'</span><span class="badge b-chev" style="font-size:10px">חשב\' מס</span><span style="color:#3a6b10;font-size:12px">'+fd(taxInv.date_sent)+'</span><span style="font-weight:700">'+fc(taxInv.amount)+'</span><span class="pill" style="color:'+ts.c+';background:'+ts.bg+';font-size:11px;cursor:default">'+ts.l+'</span><span style="margin-right:auto;display:flex;gap:2px"><button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+taxInv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+taxInv.id+'\',\''+pid+'\')">🗑</button></span></div>';}
         else if(ta.status==='paid'||ta.status==='accounting'){h+='<div class="inv-chain-sub need-tax" onclick="closeM();openI(null,\''+pid+'\',\''+ta.id+'\')"><span class="chain-arrow">└──</span><span>⚠️ שולם — דרושה הוצאת חשבונית מס</span><span style="margin-right:auto;font-size:11px;font-weight:700">לחץ להוסיף ▸</span></div>';}
         h+='</div>';
       });
     }
     if(otherInvs.length){if(transactionInvs.length)h+='<div style="font-size:11px;font-weight:700;color:#888;margin:10px 0 6px">חשבוניות אחרות</div>';
-      otherInvs.forEach(function(inv){if(linkedTaxIds[inv.id])return;var s=gi(inv.status);h+='<div class="inv-chain-solo">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(inv.invoice_number||'—')+'</span><span class="badge b-osek" style="font-size:10px">'+ex(inv.invoice_type||'')+'</span><span style="color:#888;font-size:12px">'+fd(inv.date_sent)+'</span><span style="font-weight:700;color:#3a6b10">'+fc(inv.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><button class="btn btn-sm btn-ghost" style="margin-right:auto" onclick="closeM();openI(\''+inv.id+'\',null)">✏️</button></div>';});
+      otherInvs.forEach(function(inv){if(linkedTaxIds[inv.id])return;var s=gi(inv.status);var isTax=inv.invoice_type==='חשבונית מס';h+='<div class="inv-chain-solo">'+(inv.file_url?'<a href="#" onclick="openPDF(\''+inv.file_url+'\');return false" title="פתח PDF">📄</a>':'')+'<span style="font-weight:700;min-width:70px">'+ex(inv.invoice_number||'—')+'</span><span class="badge '+(isTax?'b-chev':'b-osek')+'" style="font-size:10px">'+ex(inv.invoice_type||'')+'</span><span style="color:#888;font-size:12px">'+fd(inv.date_sent)+'</span><span style="font-weight:700;color:'+(isTax?'#3a6b10':'#555')+'">'+fc(inv.amount)+'</span><span class="pill" style="color:'+s.c+';background:'+s.bg+';font-size:11px;cursor:default">'+s.l+'</span><span style="margin-right:auto;display:flex;gap:2px"><button class="btn btn-sm btn-ghost" onclick="closeM();openI(\''+inv.id+'\',null)">✏️</button><button class="btn btn-sm btn-ghost btn-red" onclick="delIFromPI(\''+inv.id+'\',\''+pid+'\')">🗑</button></span></div>';});
     }
   }
-  h+='<div class="mftr"><button class="btn btn-blue" onclick="closeM();openI(null,\''+pid+'\')">+ חשבונית חדשה</button></div>';
+  // ── Project files (תיק מסמכים) ──
+  var files=p.files||[];
+  h+='<div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee">';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:13px;font-weight:700">📎 מסמכי הפרויקט</span><span id="pf-status" style="font-size:11px;color:#834e0a;margin-right:auto"></span></div>';
+  var catSel='<select class="fs" id="pf-cat" style="padding:5px 8px;font-size:12px">';PFCAT.forEach(function(cx){catSel+='<option value="'+ex(cx)+'">'+ex(cx)+'</option>';});catSel+='</select>';
+  h+='<div style="display:flex;align-items:center;gap:7px;margin-bottom:10px">'+catSel+'<label class="btn btn-sm btn-blue" style="cursor:pointer">📤 העלה קובץ<input type="file" style="display:none" onchange="handleProjFileUpload(\''+pid+'\',this)"></label><span style="font-size:11px;color:#aaa">PDF / תמונה / כל קובץ</span></div>';
+  if(!files.length){h+='<div style="font-size:12px;color:#bbb;padding:4px 0">אין מסמכים עדיין — העלה הזמנת עבודה, חשבון מאושר, הצעת מחיר וכו\'.</div>';}
+  else{
+    PFCAT.forEach(function(cx){
+      var fl=files.filter(function(f){return (f.cat||'אחר')===cx;});if(!fl.length)return;
+      h+='<div style="font-size:11px;font-weight:700;color:#888;margin:8px 0 4px">'+ex(cx)+' ('+fl.length+')</div>';
+      fl.forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#faf8f5;border:1px solid #eee;border-radius:6px;margin-bottom:4px;font-size:12px"><a href="#" onclick="openPDF(\''+ex(f.path)+'\');return false" style="color:#1860a8;font-weight:600;flex:1;text-decoration:none">📄 '+ex(f.name)+'</a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span><button class="btn btn-sm btn-ghost btn-red" onclick="delProjFile(\''+pid+'\',\''+f.id+'\')">🗑</button></div>';});
+    });
+  }
+  h+='</div>';
+  h+='<div class="mftr"><button class="btn" onclick="openP(\''+pid+'\')">✏️ ערוך פרויקט</button><button class="btn btn-blue" onclick="closeM();openI(null,\''+pid+'\')">+ חשבונית חדשה</button></div>';
   showM(h);
 }
 /* ── EMPLOYEE MODAL ── */
