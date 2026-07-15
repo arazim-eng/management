@@ -472,7 +472,15 @@ async function processPaymentEmail(token: string, mailbox: string, email: any, i
 }
 
 // ── MAIN ──
-Deno.serve(async () => {
+// The full run (Graph scan + Claude PDF extraction) can take well over a minute
+// when several new mails arrive. The GitHub Action that triggers this used
+// `curl --max-time 60` and was going red with exit 28 (curl timeout) whenever a
+// run ran long — even though the work itself was fine. Fix: kick the run off in
+// the background with EdgeRuntime.waitUntil and return 202 immediately, so the
+// caller never waits on it. Supabase keeps the function alive until the promise
+// settles (independent of the HTTP client), and the run is idempotent
+// (processed_emails), so an early return / next-hour continuation is safe.
+async function runAgent() {
   const results: string[] = [];
   const digest: string[] = []; // ONE summary email per run instead of one per event
   let hadError = false;
@@ -514,7 +522,14 @@ Deno.serve(async () => {
     );
   }
 
-  return new Response(JSON.stringify({ ok: !hadError, results }, null, 2), {
+  return { ok: !hadError, results };
+}
+
+Deno.serve(() => {
+  // Run in the background; return to the caller (GitHub Action) right away.
+  EdgeRuntime.waitUntil(runAgent());
+  return new Response(JSON.stringify({ ok: true, started: true }), {
+    status: 202,
     headers: { "Content-Type": "application/json" }
   });
 });
