@@ -154,7 +154,7 @@ function buildReport(projects: any[], invoices: any[]): string {
       s1 += `<tr>
         <td><strong>${inv.invoice_number || "—"}</strong></td>
         <td>${proj?.name || "—"}</td>
-        <td>${CLIENT_NAMES[proj?.client_id] || proj?.client_id || "—"}</td>
+        <td>${CLIENT_NAMES[proj?.client_id] || proj?.custom_client || proj?.client_id || "—"}</td>
         <td><strong>${fc(inv.amount)}</strong></td>
         <td>${fd(inv.date_paid)}</td>
       </tr>`;
@@ -175,7 +175,7 @@ function buildReport(projects: any[], invoices: any[]): string {
       const badgeClass = p.status === "no_order" ? "badge-red" : "badge-amber";
       s2 += `<tr>
         <td><strong>${p.name}</strong></td>
-        <td>${CLIENT_NAMES[p.client_id] || p.client_id || "—"}</td>
+        <td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td>
         <td>${p.contact_name || "—"}</td>
         <td>${fc(p.supervision_amount)}</td>
         <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
@@ -242,7 +242,7 @@ function buildReport(projects: any[], invoices: any[]): string {
       s3 += `<tr>
         <td><strong>${inv.invoice_number || "—"}</strong></td>
         <td>${proj?.name || "—"}</td>
-        <td>${CLIENT_NAMES[proj?.client_id] || proj?.client_id || "—"}</td>
+        <td>${CLIENT_NAMES[proj?.client_id] || proj?.custom_client || proj?.client_id || "—"}</td>
         <td><strong style="color:#3a6b10">${fc(inv.amount)}</strong></td>
         <td>${fd(inv.date_paid)}</td>
       </tr>`;
@@ -277,7 +277,7 @@ function buildReport(projects: any[], invoices: any[]): string {
       const label = statusLabels[p.status] || p.status;
       s4 += `<tr>
         <td><strong>${p.name}</strong></td>
-        <td>${CLIENT_NAMES[p.client_id] || p.client_id || "—"}</td>
+        <td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td>
         <td>${fc(p.supervision_amount)}</td>
         <td>${submitted ? fc(submitted) : "—"}</td>
         <td>${paid ? `<span style="color:#3a6b10">${fc(paid)}</span>` : "—"}</td>

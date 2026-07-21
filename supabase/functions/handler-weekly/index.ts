@@ -78,7 +78,7 @@ function buildHandlerEmail(name: string, projs: any[]): string {
     const badge = p.status === "pending_order" ? "badge-amber" : "badge-red";
     rows += `<tr>
       <td><strong>${p.name}</strong>${p.project_number ? `<div style="font-size:11px;color:#888">${p.project_number}</div>` : ""}</td>
-      <td>${CLIENT_NAMES[p.client_id] || p.client_id || "—"}</td>
+      <td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td>
       <td>${p.scope_amount ? fc(p.scope_amount) : "—"}</td>
       <td><strong>${fc(net)}</strong></td>
       <td>${fc(Math.round(net * (1 + VAT)))}</td>
