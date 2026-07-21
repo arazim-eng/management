@@ -1,6 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-// Weekly email to each גורם מטפל: their projects still missing a work order + the money stuck.
+// Weekly email per department/handler: projects still missing a work order + the money stuck.
+// Routing rules (Moshe 21.7.26):
+//   בדק בית  = קובי שמואלי + שלומי שוקרון → one email to both
+//   תכנון    = תהילה ארז + סנדרה (+ תהילה חפצדי) → one email, תהילה ארז always included
+//   נגישות   = לאה סנדרס + הדסה → one email to both, always
+//   מוחמד / שמואל לשם / everyone else → individual email
 // Recipients come from the `handlers` table (email + send_weekly) — no email ⇒ nothing is sent.
 // ?test=1 ⇒ every email is delivered to MOSHE only (subject marked), nothing reaches the handlers.
 
@@ -18,6 +23,13 @@ const CLIENT_NAMES: Record<string, string> = {
   jlm: "עיריית ירושלים", rl: "עיריית ראשון לציון", bs: "עיריית בית שמש",
   ge: "גוש עציון", ef: "אפרת", nc: "נס ציונה", kg: "קרית גת",
 };
+
+// department groups — member projects are combined into ONE email sent to all members' addresses
+const GROUPS: { title: string; members: string[] }[] = [
+  { title: "בדק בית", members: ["קובי שמואלי", "שלומי שוקרון"] },
+  { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי"] },
+  { title: "נגישות", members: ["לאה סנדרס", "הדסה"] },
+];
 
 function fc(n: any): string {
   if (!n && n !== 0) return "—";
@@ -66,7 +78,7 @@ async function getData() {
   return { projects: await projRes.json(), handlers: await handRes.json() };
 }
 
-function buildHandlerEmail(name: string, projs: any[]): string {
+function buildHandlerEmail(greeting: string, projs: any[], showHandler: boolean): string {
   const dateStr = new Date().toLocaleDateString("he-IL", { year: "numeric", month: "long", day: "numeric" });
   const totalNet = projs.reduce((s, p) => s + (Number(p.supervision_amount) || 0), 0);
   const totalGross = Math.round(totalNet * (1 + VAT));
@@ -78,6 +90,7 @@ function buildHandlerEmail(name: string, projs: any[]): string {
     const badge = p.status === "pending_order" ? "badge-amber" : "badge-red";
     rows += `<tr>
       <td><strong>${p.name}</strong>${p.project_number ? `<div style="font-size:11px;color:#888">${p.project_number}</div>` : ""}</td>
+      ${showHandler ? `<td>${norm(p.contact_name) || "—"}</td>` : ""}
       <td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td>
       <td>${p.scope_amount ? fc(p.scope_amount) : "—"}</td>
       <td><strong>${fc(net)}</strong></td>
@@ -111,14 +124,14 @@ function buildHandlerEmail(name: string, projs: any[]): string {
     <p>מ.ס ארזים הנדסה · ${dateStr}</p>
   </div>
   <div class="body">
-    <p class="intro">שלום ${name},<br>
-    להלן ריכוז הפרויקטים שבטיפולך אשר טרם הוצאה עבורם הזמנת עבודה.
+    <p class="intro">שלום ${greeting},<br>
+    להלן ריכוז הפרויקטים שבטיפולכם אשר טרם הוצאה עבורם הזמנת עבודה.
     נודה לקידום הוצאת ההזמנות כדי שנוכל להמשיך בעבודה באופן סדיר.</p>
     <table>
-      <thead><tr><th>פרויקט</th><th>רשות</th><th>היקף (ללא מע"מ)</th><th>שכ"ט פיקוח (ללא מע"מ)</th><th>כולל מע"מ</th><th>סטטוס</th></tr></thead>
+      <thead><tr><th>פרויקט</th>${showHandler ? "<th>גורם מטפל</th>" : ""}<th>רשות</th><th>היקף (ללא מע"מ)</th><th>שכ"ט פיקוח (ללא מע"מ)</th><th>כולל מע"מ</th><th>סטטוס</th></tr></thead>
       <tbody>
         ${rows}
-        <tr class="total-row"><td colspan="3">סה"כ (${projs.length} פרויקטים)</td><td>${fc(totalNet)}</td><td>${fc(totalGross)}</td><td></td></tr>
+        <tr class="total-row"><td colspan="${showHandler ? 4 : 3}">סה"כ (${projs.length} פרויקטים)</td><td>${fc(totalNet)}</td><td>${fc(totalGross)}</td><td></td></tr>
       </tbody>
     </table>
     <p class="intro" style="margin-top:18px">בכל שאלה ניתן לפנות אליי במייל או בטלפון.<br>תודה רבה,<br><strong>משה סעדה</strong> · מ.ס ארזים הנדסה בע"מ</p>
@@ -153,20 +166,47 @@ Deno.serve(async (req) => {
     let token: string | null = null;
     let sent = 0, skipped = 0;
     const results: any[] = [];
+    const grouped = new Set<string>(); // handler keys already covered by a department email
 
+    const deliver = async (label: string, greeting: string, toList: string[], projs: any[], showHandler: boolean) => {
+      if (!token) token = await getAzureToken();
+      const html = buildHandlerEmail(greeting, projs, showHandler);
+      const subject = (isTest ? `[בדיקה — היה נשלח אל ${toList.join(", ")}] ` : "") +
+        `פרויקטים הממתינים להזמנת עבודה — ${label} (${projs.length})`;
+      const recipients = isTest ? [MOSHE] : toList;
+      for (let i = 0; i < recipients.length; i++) {
+        await sendEmail(token!, recipients[i], !isTest && i === 0 ? MOSHE : null, subject, html);
+        if (isTest) break; // in test mode one copy to Moshe is enough
+      }
+      sent++;
+      results.push({ group: label, to: toList, projects: projs.length, status: "sent" });
+    };
+
+    // 1) department groups — combined projects, all members as recipients
+    for (const g of GROUPS) {
+      const memberKeys = g.members.map((m) => norm(m).toLowerCase());
+      const projs = memberKeys.flatMap((mk) => byHandler[mk]?.projs || []);
+      memberKeys.forEach((mk) => { if (byHandler[mk]) grouped.add(mk); });
+      if (!projs.length) continue;
+      const toList = memberKeys
+        .map((mk) => emailByName[mk])
+        .filter((r) => r && r.email && r.send)
+        .map((r) => r!.email!) ;
+      if (!toList.length) { skipped++; results.push({ group: g.title, status: "no-email" }); continue; }
+      const names = g.members.filter((m) => {
+        const mk = norm(m).toLowerCase();
+        return byHandler[mk] || (emailByName[mk] && emailByName[mk].email);
+      });
+      await deliver(`מחלקת ${g.title}`, names.join(" ו"), [...new Set(toList)], projs, true);
+    }
+
+    // 2) individual handlers (מוחמד, שמואל לשם and anyone else not in a group)
     for (const k of Object.keys(byHandler)) {
+      if (grouped.has(k)) continue;
       const { name, projs } = byHandler[k];
       const rec = emailByName[k];
       if (!rec || !rec.email || !rec.send) { skipped++; results.push({ handler: name, status: "no-email" }); continue; }
-      if (!token) token = await getAzureToken();
-      const html = buildHandlerEmail(name, projs);
-      const subject = (isTest ? `[בדיקה — היה נשלח אל ${name} <${rec.email}>] ` : "") +
-        `פרויקטים הממתינים להזמנת עבודה (${projs.length}) — ארזים הנדסה`;
-      const to = isTest ? MOSHE : rec.email;
-      const cc = isTest ? null : MOSHE;
-      await sendEmail(token, to, cc, subject, html);
-      sent++;
-      results.push({ handler: name, to, projects: projs.length, status: "sent" });
+      await deliver(name, name, [rec.email], projs, false);
     }
 
     return new Response(JSON.stringify({ ok: true, test: isTest, sent, skipped, results }), {
