@@ -26,8 +26,9 @@ const CLIENT_NAMES: Record<string, string> = {
 
 // department groups — member projects are combined into ONE email sent to all members' addresses
 const GROUPS: { title: string; members: string[] }[] = [
-  { title: "בדק בית", members: ["קובי שמואלי", "שלומי שוקרון"] },
-  { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי"] },
+  // "תהילה + קובי" (פלך) belongs to BOTH בדק בית and תכנון — appears in both emails (Moshe 21.7)
+  { title: "בדק בית", members: ["קובי שמואלי", "שלומי שוקרון", "תהילה + קובי"] },
+  { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי", "תהילה + קובי"] },
   { title: "נגישות", members: ["לאה סנדרס", "הדסה"] },
 ];
 
@@ -194,6 +195,7 @@ Deno.serve(async (req) => {
         .map((r) => r!.email!) ;
       if (!toList.length) { skipped++; results.push({ group: g.title, status: "no-email" }); continue; }
       const names = g.members.filter((m) => {
+        if (m.includes("+")) return false; // pseudo-member (shared handler) — not a greeting name
         const mk = norm(m).toLowerCase();
         return byHandler[mk] || (emailByName[mk] && emailByName[mk].email);
       });
