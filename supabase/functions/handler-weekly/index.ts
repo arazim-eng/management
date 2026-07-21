@@ -17,6 +17,7 @@ const AZURE_CLIENT_SECRET = Deno.env.get("AZURE_CLIENT_SECRET")!;
 
 const SENDER = "moshe@arazim-eng.co.il";
 const MOSHE = "moshe@arazim-eng.co.il";
+const SUMMARY_TO = ["moshe@arazim-eng.co.il", "office@arazim-eng.co.il"]; // משה + יפעה
 const VAT = 0.18; // project amounts are stored WITHOUT VAT (since 21.7.26)
 
 const CLIENT_NAMES: Record<string, string> = {
@@ -169,6 +170,7 @@ Deno.serve(async (req) => {
     const results: any[] = [];
     const grouped = new Set<string>(); // handler keys already covered by a department email
 
+    const sentDetails: { label: string; toList: string[]; projs: any[] }[] = [];
     const deliver = async (label: string, greeting: string, toList: string[], projs: any[], showHandler: boolean) => {
       if (!token) token = await getAzureToken();
       const html = buildHandlerEmail(greeting, projs, showHandler);
@@ -176,10 +178,11 @@ Deno.serve(async (req) => {
         `פרויקטים הממתינים להזמנת עבודה — ${label} (${projs.length})`;
       const recipients = isTest ? [MOSHE] : toList;
       for (let i = 0; i < recipients.length; i++) {
-        await sendEmail(token!, recipients[i], !isTest && i === 0 ? MOSHE : null, subject, html);
+        await sendEmail(token!, recipients[i], null, subject, html);
         if (isTest) break; // in test mode one copy to Moshe is enough
       }
       sent++;
+      sentDetails.push({ label, toList, projs });
       results.push({ group: label, to: toList, projects: projs.length, status: "sent" });
     };
 
@@ -209,6 +212,56 @@ Deno.serve(async (req) => {
       const rec = emailByName[k];
       if (!rec || !rec.email || !rec.send) { skipped++; results.push({ handler: name, status: "no-email" }); continue; }
       await deliver(name, name, [rec.email], projs, false);
+    }
+
+    // 3) combined summary to Moshe + Yifa — who got what, and the grand total
+    if (sentDetails.length) {
+      if (!token) token = await getAzureToken();
+      // פלך appears in two groups — count unique projects for the grand total
+      const uniq: Record<string, any> = {};
+      sentDetails.forEach((d) => d.projs.forEach((p) => { uniq[p.id] = p; }));
+      const uniqProjs = Object.values(uniq);
+      const uniqTotal = uniqProjs.reduce((s: number, p: any) => s + (Number(p.supervision_amount) || 0), 0);
+      let sumRows = "";
+      sentDetails.forEach((d) => {
+        const t = d.projs.reduce((s, p) => s + (Number(p.supervision_amount) || 0), 0);
+        sumRows += `<tr><td><strong>${d.label}</strong></td><td style="font-size:12px">${d.toList.join("<br>")}</td><td>${d.projs.length}</td><td><strong>${fc(t)}</strong></td><td>${fc(Math.round(t * (1 + VAT)))}</td></tr>`;
+      });
+      let allRows = "";
+      (uniqProjs as any[]).sort((a, b) => (Number(b.supervision_amount) || 0) - (Number(a.supervision_amount) || 0)).forEach((p) => {
+        const net = Number(p.supervision_amount) || 0;
+        allRows += `<tr><td><strong>${p.name}</strong></td><td>${norm(p.contact_name) || "—"}</td><td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td><td>${fc(net)}</td><td>${fc(Math.round(net * (1 + VAT)))}</td></tr>`;
+      });
+      const dateStr = new Date().toLocaleDateString("he-IL", { year: "numeric", month: "long", day: "numeric" });
+      const sumHtml = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><style>
+        body{font-family:Arial,sans-serif;direction:rtl;background:#f0eeea;margin:0;padding:20px}
+        .wrap{max-width:720px;margin:0 auto}
+        .header{background:#0e6d54;color:white;padding:20px 24px;border-radius:10px 10px 0 0}
+        .header h1{margin:0;font-size:19px}.header p{margin:4px 0 0;font-size:13px;opacity:.85}
+        .body{background:white;border:1px solid #ddd;border-top:none;border-radius:0 0 10px 10px;padding:24px}
+        h2{font-size:14px;margin:18px 0 6px;color:#333}
+        table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+        th{background:#faf8f5;padding:8px 10px;text-align:right;font-weight:700;color:#888;border-bottom:2px solid #eee;white-space:nowrap}
+        td{padding:8px 10px;border-bottom:1px solid #f0eeea;vertical-align:top}
+        .total-row td{background:#e0f4ed;font-weight:700;border-top:2px solid #9fe0cb;color:#074f3c}
+        .footer{text-align:center;font-size:11px;color:#aaa;margin-top:16px}
+      </style></head><body><div class="wrap">
+        <div class="header"><h1>📊 סיכום — מיילי הזמנות עבודה שנשלחו</h1><p>מ.ס ארזים הנדסה · ${dateStr}</p></div>
+        <div class="body">
+          <h2>מי קיבל מה</h2>
+          <table><thead><tr><th>מחלקה / גורם</th><th>נמענים</th><th>פרויקטים</th><th>שכ"ט ללא מע"מ</th><th>כולל מע"מ</th></tr></thead>
+          <tbody>${sumRows}
+          <tr class="total-row"><td colspan="2">סה"כ (${uniqProjs.length} פרויקטים ייחודיים)</td><td></td><td>${fc(uniqTotal)}</td><td>${fc(Math.round(uniqTotal * (1 + VAT)))}</td></tr></tbody></table>
+          <h2>כל הפרויקטים הממתינים להזמנה</h2>
+          <table><thead><tr><th>פרויקט</th><th>גורם מטפל</th><th>רשות</th><th>שכ"ט ללא מע"מ</th><th>כולל מע"מ</th></tr></thead>
+          <tbody>${allRows}</tbody></table>
+        </div>
+        <div class="footer">נשלח אוטומטית ממערכת ניהול הפיקוח של ארזים הנדסה</div>
+      </div></body></html>`;
+      const sumSubject = (isTest ? "[בדיקה] " : "") + `סיכום מיילי הזמנות עבודה — ${sentDetails.length} מיילים · ${fc(uniqTotal)} ממתין להזמנה`;
+      const sumTo = isTest ? [MOSHE] : SUMMARY_TO;
+      for (const addr of sumTo) await sendEmail(token!, addr, null, sumSubject, sumHtml);
+      results.push({ summary: true, to: sumTo, total: uniqTotal, status: "sent" });
     }
 
     return new Response(JSON.stringify({ ok: true, test: isTest, sent, skipped, results }), {
