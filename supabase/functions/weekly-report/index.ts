@@ -169,7 +169,7 @@ function buildReport(projects: any[], invoices: any[]): string {
   if (!needWO.length) {
     s2 += `<div class="empty">✅ כל הפרויקטים קיבלו הזמנת עבודה</div>`;
   } else {
-    s2 += `<table><thead><tr><th>פרויקט</th><th>לקוח</th><th>איש קשר</th><th>סכום פיקוח</th><th>סטטוס</th></tr></thead><tbody>`;
+    s2 += `<table><thead><tr><th>פרויקט</th><th>לקוח</th><th>איש קשר</th><th>סכום פיקוח (ללא מע"מ)</th><th>סטטוס</th></tr></thead><tbody>`;
     needWO.forEach(p => {
       const statusLabel = p.status === "no_order" ? "ללא הזמנה" : "ממתין להזמנה";
       const badgeClass = p.status === "no_order" ? "badge-red" : "badge-amber";
@@ -259,7 +259,7 @@ function buildReport(projects: any[], invoices: any[]): string {
   if (!active.length) {
     s4 += `<div class="empty">אין פרויקטים פעילים</div>`;
   } else {
-    s4 += `<table><thead><tr><th>פרויקט</th><th>לקוח</th><th>סכום פיקוח</th><th>הוגש</th><th>שולם</th><th>סטטוס</th></tr></thead><tbody>`;
+    s4 += `<table><thead><tr><th>פרויקט</th><th>לקוח</th><th>סכום פיקוח (ללא מע"מ)</th><th>הוגש</th><th>שולם</th><th>סטטוס</th></tr></thead><tbody>`;
     
     const statusLabels: Record<string, string> = {
       no_order: "ללא הזמנה",
