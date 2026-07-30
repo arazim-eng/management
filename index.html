@@ -128,6 +128,17 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
 /* need-tax badge in main table */
 .need-tax-badge{display:inline-flex;align-items:center;gap:3px;background:#faebd8;color:#834e0a;border:1px solid #f8c580;border-radius:4px;font-size:11px;padding:2px 6px;cursor:pointer}
 .need-tax-badge:hover{background:#f5d9b8}
+/* debts report — filter chips */
+.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;border:1px solid #ddd;background:#fff;color:#555;font-size:12px;font-weight:600;cursor:pointer;user-select:none}
+.chip:hover{background:#f5f3ef}
+.chip.on{background:#1860a8;border-color:#1860a8;color:#fff}
+.chip-box{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.chip-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.chip-ttl{font-size:12px;font-weight:700;color:#888}
+.chip-act{font-size:11px;color:#1860a8;cursor:pointer;font-weight:700}
+.chip-wrap{display:flex;flex-wrap:wrap;gap:6px}
+.tgl{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:5px 11px;border-radius:7px;border:1px solid #ddd;background:#fff}
+.tgl.on{background:#e8f1fb;border-color:#9ec4ea;color:#1860a8;font-weight:700}
 @media(max-width:750px){#sb{display:none}#main{margin-right:0}.stats4,.stats3{grid-template-columns:1fr 1fr}.fg2{grid-template-columns:1fr}.fg.w2{grid-column:1}}
 </style>
 </head>
@@ -140,6 +151,7 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
   <div class="ni" id="ni-projects" onclick="go('projects')"><span class="nic">📋</span>פרויקטים<span class="nb" id="b-op" style="display:none">0</span></div>
   <div class="ni" id="ni-invoices" onclick="go('invoices')"><span class="nic">🧾</span>חשבוניות<span class="nb" id="b-iv" style="display:none">0</span></div>
   <div class="ni" id="ni-cashflow" onclick="go('cashflow')"><span class="nic">💰</span>תזרים וחייבים<span class="nb" id="b-cf" style="display:none;background:#834e0a">0</span></div>
+  <div class="ni" id="ni-debts" onclick="go('debts')"><span class="nic">📑</span>דוח חובות</div>
   <div class="ni" id="ni-handlers" onclick="go('handlers')"><span class="nic">👤</span>גורמים מטפלים</div>
   <div class="sb-sec">עובדים</div>
   <div class="ni" id="ni-employees" onclick="go('employees')"><span class="nic">👥</span>עובדים ורווח</div>
@@ -173,6 +185,8 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
 <script>
 var CL=[{id:'jlm',name:'עיריית ירושלים',ent:'עוסק',col:'#1860a8'},{id:'rl',name:'עיריית ראשון לציון',ent:'עוסק',col:'#3b3387'},{id:'bs',name:'עיריית בית שמש',ent:'חברה',col:'#0e6d54'},{id:'ge',name:'גוש עציון',ent:'עוסק',col:'#834e0a'},{id:'ef',name:'אפרת',ent:'חברה',col:'#933355'},{id:'nc',name:'נס ציונה',ent:'עוסק',col:'#555'},{id:'kg',name:'קרית גת',ent:'עוסק',col:'#555'},{id:'other',name:'אחר',ent:'עוסק',col:'#8a6d3b'}];
 var DP={jlm:[{id:'j1',name:'מינהלת העירייה',emp:true},{id:'j2',name:'מנהל חינוך — תכנון',emp:false},{id:'j3',name:'מנהל חינוך — ביצוע/אחר',emp:false},{id:'j4',name:'נגישות ואקוסטיקה',emp:false},{id:'j5',name:'בטיחות חינוך חרדי',emp:false}],rl:[{id:'r1',name:'מחלקת חשמל',emp:true},{id:'r2',name:'מחלקת בינוי',emp:true},{id:'r3',name:'מחלקת שפ"ע',emp:true}],bs:[{id:'b1',name:'כללי',emp:false}],ge:[{id:'g1',name:'כללי',emp:false}],ef:[{id:'e1',name:'כללי',emp:false}],nc:[{id:'n1',name:'כללי',emp:false}],kg:[{id:'k1',name:'כללי',emp:false}],other:[{id:'x1',name:'כללי',emp:false}]};
+/* 30.7: every client also gets a free-text "אחר" department — stored as department_id="other:<שם>" */
+Object.keys(DP).forEach(function(k){DP[k].push({id:'other',name:'אחר — הקלד שם',emp:false});});
 var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l:'ממתין להזמנה',c:'#834e0a',bg:'#faebd8'},offer_sent:{l:'נשלח חשבון עסקה',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח עירייה',c:'#0e6d54',bg:'#e0f4ed'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},invoice_sent:{l:'נשלחה חשבונית מס',c:'#3b3387',bg:'#eeedfd'},closed:{l:'סגור',c:'#555',bg:'#f1f0ec'}};
 var IT=['חשבון עסקה','חשבונית מס','קבלה']; /* 21.7: הצעת מחיר הוסרה — משה לא רוצה אותן בטבלה */
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},cancelled:{l:'מבוטל',c:'#b02',bg:'#fce9e9'}};
@@ -199,7 +213,7 @@ function backfillProjNumbers(){
   svP();updated.forEach(function(p){cloudSave('projects',p);});go(D.view);
   alert('הוקצו מספרים ל-'+updated.length+' פרויקטים.');
 }
-var D={view:'dashboard',projects:[],invoices:[],employees:[],handlers:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:''}};
+var D={view:'dashboard',projects:[],invoices:[],employees:[],handlers:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:''},dbt:{cls:{},hns:{},noOrd:true,unpaid:true}};
 var SB_URL='https://kwmldvcsucbuvsjsiuaq.supabase.co';
 var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8';
 /* ── AUTH: RLS allows authenticated users only; the anon key is just the apikey ── */
@@ -364,7 +378,10 @@ function fd(d){if(!d)return'—';try{return new Date(d).toLocaleDateString();}ca
 function gc(id){for(var i=0;i<CL.length;i++)if(CL[i].id===id)return CL[i];return{};}
 /* display name of a project's client — "אחר" shows the free-text name */
 function cliName(p){if(!p)return'';var c=gc(p.client_id);if(p.client_id==='other'&&p.custom_client)return p.custom_client;return c.name||p.client_id||'';}
-function gd(cid,did){var a=DP[cid]||[];for(var i=0;i<a.length;i++)if(a[i].id===did)return a[i];return{};}
+/* department lookup — "other:<שם>" is a free-text department typed by the user */
+function isOtherDept(did){return String(did||'').indexOf('other')===0;}
+function otherDeptName(did){return String(did||'').slice(6);}
+function gd(cid,did){if(isOtherDept(did))return{id:'other',name:otherDeptName(did)||'אחר'};var a=DP[cid]||[];for(var i=0;i<a.length;i++)if(a[i].id===did)return a[i];return{};}
 function gs(s){return STS[s]||STS.no_order;}
 function gi(s){return IST[s]||IST.draft;}
 function pInvs(pid){return D.invoices.filter(function(i){return i.project_id===pid;});}
@@ -421,12 +438,12 @@ function go(v){
   D.view=v;
   var ns=document.querySelectorAll('.ni');for(var i=0;i<ns.length;i++)ns[i].classList.remove('on');
   var el=document.getElementById('ni-'+v);if(el)el.classList.add('on');
-  var T={dashboard:'לוח בקרה',projects:'כל הפרויקטים',invoices:'חשבוניות',cashflow:'תזרים וחייבים',handlers:'גורמים מטפלים',employees:'עובדים ורווח',alerts:'דברים פתוחים'};
+  var T={dashboard:'לוח בקרה',projects:'כל הפרויקטים',invoices:'חשבוניות',cashflow:'תזרים וחייבים',debts:'דוח חובות',handlers:'גורמים מטפלים',employees:'עובדים ורווח',alerts:'דברים פתוחים'};
   document.getElementById('vtitle').textContent=T[v]||v;
-  var A={projects:'<button class="btn btn-blue" onclick="openP(null)">+ פרויקט חדש</button>',invoices:'<button class="btn btn-blue" onclick="openI(null,null)">+ חשבונית חדשה</button>',employees:'<button class="btn btn-blue" onclick="openE(null)">+ עובד חדש</button>'};
+  var A={projects:'<button class="btn btn-blue" onclick="openP(null)">+ פרויקט חדש</button>',invoices:'<button class="btn btn-blue" onclick="openI(null,null)">+ חשבונית חדשה</button>',employees:'<button class="btn btn-blue" onclick="openE(null)">+ עובד חדש</button>',handlers:'<button class="btn btn-blue" onclick="openHandlerNew()">+ גורם מטפל חדש</button>'};
   document.getElementById('vact').innerHTML=A[v]||'';
   var html='';
-  try{if(v==='dashboard')html=vDash();else if(v==='projects')html=vProj();else if(v==='invoices')html=vInv();else if(v==='cashflow')html=vCash();else if(v==='handlers')html=vHand();else if(v==='employees')html=vEmp();else if(v==='alerts')html=vAl();else html=vDash();}
+  try{if(v==='dashboard')html=vDash();else if(v==='projects')html=vProj();else if(v==='invoices')html=vInv();else if(v==='cashflow')html=vCash();else if(v==='debts')html=vDebts();else if(v==='handlers')html=vHand();else if(v==='employees')html=vEmp();else if(v==='alerts')html=vAl();else html=vDash();}
   catch(err){html='<div style="padding:20px;color:red">שגיאה: '+err.message+'</div>';}
   document.getElementById('view').innerHTML=html;
   bdg();
@@ -630,10 +647,41 @@ function vCash(){
 }
 /* ── HANDLERS (גורמים מטפלים) ── */
 function normHandler(v){return String(v||'').trim().replace(/\s+/g,' ');}
+/* every handler we know of — from projects AND manually added rows in the handlers table */
 function handlersList(){
   var seen={},out=[];
   D.projects.forEach(function(p){var n=normHandler(p.contact_name);if(!n)return;var k=n.toLowerCase();if(!seen[k]){seen[k]=1;out.push(n);}});
+  D.handlers.forEach(function(h){var n=normHandler(h.name);if(!n)return;var k=n.toLowerCase();if(!seen[k]){seen[k]=1;out.push(n);}});
   return out.sort(function(a,b){return a.localeCompare(b,'he');});
+}
+/* ── add / remove a handler by hand (no project needed) ── */
+function openHandlerNew(){
+  var h='<div class="mhdr"><span class="mtitle">➕ גורם מטפל חדש</span><button class="mx" onclick="closeM()">✕</button></div>';
+  h+='<div class="fg2"><div class="fg w2"><label class="flbl">שם הגורם המטפל *</label><input class="fi" id="hn-nm" placeholder="לדוגמה: קובי שמואלי"></div>';
+  h+='<div class="fg w2"><label class="flbl">מייל (לשליחת דוחות)</label><input class="fi" id="hn-em" type="email" placeholder="name@jerusalem.muni.il"></div>';
+  h+='<div class="fg w2" style="flex-direction:row;align-items:center;gap:7px;background:#faf8f5;border:1px solid #eee;border-radius:7px;padding:8px 12px"><input type="checkbox" id="hn-wk" checked style="width:16px;height:16px"><label for="hn-wk" style="font-size:12px;color:#5a3200;cursor:pointer">📧 לכלול במייל השבועי האוטומטי</label></div></div>';
+  h+='<div class="info-bar" style="margin:12px 0 0;font-size:12px">אחרי השמירה הגורם יופיע ברשימת הבחירה של "גורם מטפל" בטופס פרויקט, בדוח החובות ובמייל השבועי.</div>';
+  h+='<div class="mftr"><button class="btn" onclick="closeM()">ביטול</button><button class="btn btn-blue" onclick="svHandlerNew()">💾 שמור</button></div>';
+  showM(h);
+  setTimeout(function(){var el=document.getElementById('hn-nm');if(el)el.focus();},60);
+}
+function svHandlerNew(){
+  var nm=normHandler(document.getElementById('hn-nm').value);
+  if(!nm){alert('נא להזין שם');return;}
+  if(handlerRec(nm)||handlersList().some(function(n){return n.toLowerCase()===nm.toLowerCase();})){alert('הגורם "'+nm+'" כבר קיים ברשימה');return;}
+  var em=document.getElementById('hn-em').value.trim();
+  if(em&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){alert('כתובת מייל לא תקינה');return;}
+  var rec={id:uid(),name:nm,email:em||null,send_weekly:document.getElementById('hn-wk').checked,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
+  D.handlers.push(rec);localStorage.setItem('az_h',JSON.stringify(D.handlers));cloudSave('handlers',rec);
+  closeM();go('handlers');
+}
+function delHandler(name){
+  var d=handlerData(name);
+  if(d.projs.length){alert('לא ניתן למחוק — לגורם "'+name+'" משויכים '+d.projs.length+' פרויקטים. שנה בהם את הגורם המטפל קודם.');return;}
+  if(!confirm('למחוק את הגורם "'+name+'" מהרשימה?'))return;
+  var rec=handlerRec(name);
+  if(rec){D.handlers=D.handlers.filter(function(x){return x.id!==rec.id;});localStorage.setItem('az_h',JSON.stringify(D.handlers));cloudDel('handlers',rec.id);}
+  go('handlers');
 }
 function handlerData(name){
   var k=normHandler(name).toLowerCase();
@@ -697,14 +745,14 @@ function vHand(){
   if(!sel){
     h+='<div class="tbl-box"><table><thead><tr><th>גורם מטפל</th><th>פרויקטים</th><th>ממתין להזמנת עבודה</th><th>חשבוניות שטרם שולמו</th><th>סה"כ חשיפה</th><th>📧 מייל שבועי</th><th></th></tr></thead><tbody>';
     if(!names.length)h+='<tr><td colspan="7" class="empty">אין גורמים מטפלים — מלא "גורם מטפל" בפרויקטים</td></tr>';
-    names.forEach(function(n,ni){var d=handlerData(n);if(!d.projs.length)return;
+    names.forEach(function(n,ni){var d=handlerData(n);
       var hr=handlerRec(n)||{};
-      h+='<tr style="cursor:pointer" onclick="D.f.hn=\''+ex(n)+'\';go(\'handlers\')"><td style="font-weight:700">👤 '+ex(n)+'</td><td>'+d.projs.length+'</td>';
+      h+='<tr style="cursor:pointer" onclick="D.f.hn=\''+ex(n)+'\';go(\'handlers\')"><td style="font-weight:700">👤 '+ex(n)+(d.projs.length?'':' <span style="font-size:10px;color:#bbb;font-weight:400">(ללא פרויקטים)</span>')+'</td><td>'+d.projs.length+'</td>';
       h+='<td>'+(d.noOrd.length?'<span class="fin-warn">'+d.noOrd.length+' | '+fc(d.noOrdSum)+'</span>':'—')+'</td>';
       h+='<td>'+(d.pend.length?'<span class="fin-warn">'+d.pend.length+' | '+fc(d.pendSum)+'</span>':'—')+'</td>';
       h+='<td style="font-weight:700;color:#b02">'+fc(d.noOrdSum+d.pendSum)+'</td>';
       h+='<td onclick="event.stopPropagation()" style="cursor:default;white-space:nowrap"><div style="display:flex;align-items:center;gap:4px"><input class="fi" id="he-'+ni+'" type="email" placeholder="מייל של הגורם" style="width:170px;padding:4px 8px;font-size:12px" value="'+ex(hr.email||'')+'"><input type="checkbox" id="hw-'+ni+'" title="שליחה שבועית פעילה"'+(hr.send_weekly===false?'':' checked')+'><button class="btn btn-sm" onclick="saveHandlerEmail(\''+ex(n)+'\','+ni+')">💾</button><span id="hs-'+ni+'" style="font-size:11px;color:#3a6b10;min-width:38px"></span></div></td>';
-      h+='<td style="color:#1860a8;font-size:12px">פתח ▸</td></tr>';});
+      h+='<td style="color:#1860a8;font-size:12px;white-space:nowrap">פתח ▸'+(d.projs.length?'':' <button class="btn btn-sm btn-ghost btn-red" onclick="event.stopPropagation();delHandler(\''+ex(n)+'\')" title="מחק גורם">🗑</button>')+'</td></tr>';});
     h+='</tbody></table></div>';
     return h;
   }
@@ -724,13 +772,288 @@ function vHand(){
   h+='<div style="margin-top:10px"><button class="btn btn-blue" onclick="copyHandlerSummary(\''+ex(sel)+'\')">📋 העתק סיכום לפגישה / וואטסאפ</button></div>';
   return h;
 }
+/* ══ DEBTS REPORT (דוח חובות) — pick municipalities + handlers, export to Excel/PDF, email ══ */
+function js1(s){return String(s===undefined||s===null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+function projClientKey(p){return p&&p.client_id==='other'?('other:'+normHandler(p.custom_client||'')):((p&&p.client_id)||'');}
+function clientKeyName(k){k=String(k||'');if(k.indexOf('other:')===0)return k.slice(6)||'לקוח אחר';var c=gc(k);return c.name||k||'—';}
+function handlerKeyOf(p){return normHandler(p&&p.contact_name).toLowerCase()||'__none';}
+function dbtSel(t){var o=D.dbt[t]||{};return Object.keys(o).filter(function(k){return o[k];});}
+function dbtClientOpts(){
+  var m={};
+  D.projects.forEach(function(p){var k=projClientKey(p);if(!k)return;if(!m[k])m[k]={k:k,name:clientKeyName(k),col:gc(p.client_id).col||'#888'};});
+  return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.name.localeCompare(b.name,'he');});
+}
+function dbtHandlerOpts(){
+  var selC=dbtSel('cls'),m={};
+  D.projects.forEach(function(p){
+    if(selC.length&&selC.indexOf(projClientKey(p))<0)return;
+    var k=handlerKeyOf(p);
+    if(!m[k])m[k]={k:k,name:normHandler(p.contact_name)||'ללא גורם מטפל',n:0};
+    m[k].n++;
+  });
+  if(!selC.length)D.handlers.forEach(function(hh){var n=normHandler(hh.name);if(!n)return;var k=n.toLowerCase();if(!m[k])m[k]={k:k,name:n,n:0};});
+  return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.name.localeCompare(b.name,'he');});
+}
+function dbtTog(t,k){D.dbt[t][k]=!D.dbt[t][k];if(t==='cls')D.dbt.hns={};document.getElementById('view').innerHTML=vDebts();}
+function dbtAll(t){var o={};(t==='cls'?dbtClientOpts():dbtHandlerOpts()).forEach(function(x){o[x.k]=true;});D.dbt[t]=o;document.getElementById('view').innerHTML=vDebts();}
+function dbtClear(t){D.dbt[t]={};document.getElementById('view').innerHTML=vDebts();}
+function dbtInc(f){D.dbt[f]=!D.dbt[f];document.getElementById('view').innerHTML=vDebts();}
+/* build the report data set. `over` = {cls:[],hns:[]} to override the on-screen selection (used for per-handler emails) */
+function debtData(over){
+  var selC=over&&over.cls?over.cls:dbtSel('cls');
+  var selH=over&&over.hns?over.hns:dbtSel('hns');
+  var okP=function(p){
+    if(!p)return false;
+    if(selC.length&&selC.indexOf(projClientKey(p))<0)return false;
+    if(selH.length&&selH.indexOf(handlerKeyOf(p))<0)return false;
+    return true;
+  };
+  var orders=[],invs=[],today=new Date();
+  if(D.dbt.noOrd){
+    D.projects.forEach(function(p){
+      if(p.status!=='no_order'&&p.status!=='pending_order')return;
+      if(!okP(p))return;
+      orders.push({p:p,client:cliName(p)||clientKeyName(projClientKey(p)),dept:gd(p.client_id,p.department_id).name||'—',
+        handler:normHandler(p.contact_name)||'—',scope:Number(p.scope_amount)||0,net:Number(p.supervision_amount)||0,
+        st:p.status==='pending_order'?'הובטחה הזמנה — טרם הוצאה':'ממתין להזמנת עבודה'});
+    });
+  }
+  if(D.dbt.unpaid){
+    cashflowInvs().forEach(function(i){
+      var p=projById(i.project_id);
+      if(p){if(!okP(p))return;}
+      else if(selC.length||selH.length)return;
+      var dd=dueDate(i),late=dd&&dd<today;
+      invs.push({i:i,p:p,client:p?cliName(p):'ללא שיוך לפרויקט',handler:p?(normHandler(p.contact_name)||'—'):'—',
+        proj:p?p.name:'⚠️ ללא שיוך',amt:Number(i.amount)||0,due:dd,late:!!late,
+        days:late?Math.round((today-dd)/86400000):0,cert:invCertain(i)});
+    });
+  }
+  orders.sort(function(a,b){return a.client.localeCompare(b.client,'he')||b.net-a.net;});
+  invs.sort(function(a,b){return (a.due||0)-(b.due||0);});
+  return{orders:orders,invs:invs,ordSum:orders.reduce(function(s,r){return s+r.net;},0),invSum:invs.reduce(function(s,r){return s+r.amt;},0)};
+}
+function dbtScopeLabel(){
+  var c=dbtSel('cls'),hn=dbtSel('hns');
+  var cs=c.length?c.map(clientKeyName).join(', '):'כל הרשויות';
+  var hs=hn.length?(' · '+hn.map(dbtHandlerName).join(', ')):'';
+  return cs+hs;
+}
+function dbtHandlerName(k){var o=dbtHandlerOpts();for(var i=0;i<o.length;i++)if(o[i].k===k)return o[i].name;
+  for(var j=0;j<D.projects.length;j++)if(handlerKeyOf(D.projects[j])===k)return normHandler(D.projects[j].contact_name)||'ללא גורם מטפל';
+  return k==='__none'?'ללא גורם מטפל':k;}
+function vDebts(){
+  var cls=dbtClientOpts(),hns=dbtHandlerOpts(),selC=dbtSel('cls'),selH=dbtSel('hns');
+  var d=debtData();
+  var h='<div class="info-bar">📑 בחר <strong>רשויות</strong> ו<strong>גורמים מטפלים</strong> (אחד או כמה — בלי בחירה = הכל), סמן מה לכלול, וייצא לאקסל / PDF או שלח במייל. <span style="font-size:12px">לדוגמה: עיריית ירושלים · קובי שמואלי + תהילה ארז + לאה סנדרס → כל מה שטרם הוזמן וטרם שולם.</span></div>';
+  /* filters */
+  h+='<div class="chip-box"><div class="chip-hdr"><span class="chip-ttl">🏛️ רשות / לקוח</span><span class="chip-act" onclick="dbtAll(\'cls\')">בחר הכל</span><span class="chip-act" onclick="dbtClear(\'cls\')">נקה</span><span style="font-size:11px;color:#bbb;margin-right:auto">'+(selC.length?selC.length+' נבחרו':'כל הרשויות')+'</span></div><div class="chip-wrap">';
+  cls.forEach(function(c){h+='<span class="chip'+(D.dbt.cls[c.k]?' on':'')+'" onclick="dbtTog(\'cls\',\''+ex(js1(c.k))+'\')"><span class="dot" style="background:'+(D.dbt.cls[c.k]?'#fff':c.col)+'"></span>'+ex(c.name)+'</span>';});
+  if(!cls.length)h+='<span style="color:#bbb;font-size:12px">אין נתונים</span>';
+  h+='</div></div>';
+  h+='<div class="chip-box"><div class="chip-hdr"><span class="chip-ttl">👤 גורם מטפל</span><span class="chip-act" onclick="dbtAll(\'hns\')">בחר הכל</span><span class="chip-act" onclick="dbtClear(\'hns\')">נקה</span><span style="font-size:11px;color:#bbb;margin-right:auto">'+(selH.length?selH.length+' נבחרו':'כל הגורמים')+'</span></div><div class="chip-wrap">';
+  hns.forEach(function(x){h+='<span class="chip'+(D.dbt.hns[x.k]?' on':'')+'" onclick="dbtTog(\'hns\',\''+ex(js1(x.k))+'\')">'+ex(x.name)+'</span>';});
+  if(!hns.length)h+='<span style="color:#bbb;font-size:12px">אין גורמים</span>';
+  h+='</div></div>';
+  h+='<div class="chip-box"><div class="chip-hdr"><span class="chip-ttl">📋 מה לכלול בדוח</span></div><div class="chip-wrap">';
+  h+='<span class="tgl'+(D.dbt.noOrd?' on':'')+'" onclick="dbtInc(\'noOrd\')">'+(D.dbt.noOrd?'☑':'☐')+' פרויקטים שטרם הוציאו להם הזמנת עבודה</span>';
+  h+='<span class="tgl'+(D.dbt.unpaid?' on':'')+'" onclick="dbtInc(\'unpaid\')">'+(D.dbt.unpaid?'☑':'☐')+' חשבוניות שהוגשו וטרם שולמו</span>';
+  h+='</div></div>';
+  /* totals */
+  h+='<div class="stats3">'+sc('⚠️ ממתין להזמנת עבודה',fc(d.ordSum),d.orders.length+' פרויקטים',d.orders.length?'#b02':'#3a6b10')
+    +sc('💰 הוגש וטרם שולם',fc(d.invSum),d.invs.length+' חשבוניות',d.invs.length?'#834e0a':'#3a6b10')
+    +sc('סה"כ חשיפה',fc(d.ordSum+d.invSum),dbtScopeLabel(),'#1860a8')+'</div>';
+  /* actions */
+  h+='<div class="fbar" style="margin-bottom:16px">'
+    +'<button class="btn btn-blue" onclick="dbtXlsx()">⬇️ הורד אקסל</button>'
+    +'<button class="btn" onclick="dbtPdf()">🖨️ PDF מעוצב</button>'
+    +'<button class="btn btn-amber" onclick="dbtMailSelf()">📧 שלח אליי</button>'
+    +'<button class="btn btn-amber" onclick="dbtMailHandlers()">📨 שלח לגורמים שנבחרו</button>'
+    +'<button class="btn btn-sm btn-ghost" onclick="dbtCopy()">📋 העתק כטקסט</button>'
+    +'</div>';
+  if(!d.orders.length&&!d.invs.length)return h+'<div class="tbl-box"><div class="empty">אין חובות פתוחים בבחירה הזו 🎉</div></div>';
+  /* orders table */
+  if(D.dbt.noOrd){
+    h+='<div class="sec-hdr" style="color:#b02">⚠️ פרויקטים הממתינים להזמנת עבודה ('+d.orders.length+')</div><div class="tbl-box"><table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>מס׳ פרויקט</th><th>פרויקט</th><th>מחלקה</th><th>היקף (ללא מע"מ)</th><th>שכ"ט פיקוח</th><th>כולל מע"מ</th><th>סטטוס</th></tr></thead><tbody>';
+    if(!d.orders.length)h+='<tr><td colspan="9" class="empty">אין</td></tr>';
+    d.orders.forEach(function(r){h+='<tr onclick="openPI(\''+r.p.id+'\')" style="cursor:pointer"><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td style="font-size:11px;color:#888">'+ex(r.p.project_number||'—')+'</td><td style="font-weight:600">'+ex(r.p.name)+'</td><td style="font-size:12px;color:#888">'+ex(r.dept)+'</td><td>'+fc(r.scope)+'</td><td style="font-weight:700;color:#b02">'+fc(r.net)+'</td><td style="color:#888">'+fc(withVat(r.net))+'</td><td style="font-size:11px">'+ex(r.st)+'</td></tr>';});
+    h+='</tbody><tfoot><tr><td colspan="6">סה"כ</td><td style="color:#b02">'+fc(d.ordSum)+'</td><td>'+fc(withVat(d.ordSum))+'</td><td></td></tr></tfoot></table></div>';
+  }
+  /* invoices table */
+  if(D.dbt.unpaid){
+    h+='<div class="sec-hdr" style="margin-top:14px;color:#834e0a">💰 חשבוניות שהוגשו וטרם שולמו ('+d.invs.length+')</div><div class="tbl-box"><table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>פרויקט</th><th>סוג</th><th>מס׳ מסמך</th><th>הוגש</th><th>מועד פירעון</th><th>סכום</th><th></th></tr></thead><tbody>';
+    if(!d.invs.length)h+='<tr><td colspan="9" class="empty">אין</td></tr>';
+    d.invs.forEach(function(r){h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td style="font-weight:600">'+ex(r.proj)+'</td><td style="font-size:11px;color:#888">'+(r.cert?'🟢 ':'🟡 ')+ex(r.i.invoice_type||'')+'</td><td>'+ex(r.i.invoice_number||'—')+'</td><td style="font-size:12px;color:#888">'+fd(invBaseDate(r.i))+'</td><td style="font-weight:600;color:'+(r.late?'#b02':'#3a6b10')+'">'+(r.due?fd(r.due):'—')+(r.late?' ⏰ +'+r.days+' ימים':'')+'</td><td style="font-weight:700;color:#834e0a">'+fc(r.amt)+'</td><td><button class="btn btn-sm" style="color:#3a6b10;border-color:#bde090" onclick="markPaid(\''+r.i.id+'\')">✓ שולם</button></td></tr>';});
+    h+='</tbody><tfoot><tr><td colspan="7">סה"כ</td><td style="color:#834e0a">'+fc(d.invSum)+'</td><td></td></tr></tfoot></table></div>';
+  }
+  return h;
+}
+/* ── shared HTML document used for both the PDF print-out and the email body ── */
+function dbtDocHtml(d,o){
+  o=o||{};
+  var dateStr=new Date().toLocaleDateString('he-IL',{year:'numeric',month:'long',day:'numeric'});
+  var greet=o.greeting?('שלום '+o.greeting+',') :'';
+  var intro=o.forHandler
+    ?'להלן ריכוז הפרויקטים והחשבונות הפתוחים שבטיפולכם נכון להיום. נודה לקידום הוצאת ההזמנות והתשלומים כדי שנוכל להמשיך בעבודה באופן סדיר.'
+    :'ריכוז החובות הפתוחים לפי הבחירה: <strong>'+ex(o.scope||dbtScopeLabel())+'</strong>.';
+  var s='body{font-family:Arial,sans-serif;direction:rtl;background:#f0eeea;margin:0;padding:20px;color:#1c1c1a}'
+   +'.wrap{max-width:900px;margin:0 auto}'
+   +'.header{background:#1860a8;color:#fff;padding:20px 24px;border-radius:10px 10px 0 0}'
+   +'.header h1{margin:0;font-size:20px}.header p{margin:4px 0 0;font-size:13px;opacity:.85}'
+   +'.body{background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 10px 10px;padding:24px}'
+   +'p.intro{font-size:14px;line-height:1.6;color:#333;margin:0 0 6px}'
+   +'h2{font-size:15px;margin:22px 0 4px;color:#333}'
+   +'table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}'
+   +'th{background:#faf8f5;padding:8px 9px;text-align:right;font-weight:700;color:#777;border-bottom:2px solid #eee;white-space:nowrap}'
+   +'td{padding:8px 9px;border-bottom:1px solid #f0eeea;vertical-align:top}'
+   +'.num{white-space:nowrap;font-weight:700}'
+   +'.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap}'
+   +'.badge-red{background:#fce9e9;color:#7a0000}.badge-amber{background:#faebd8;color:#5a3200}.badge-late{background:#fce9e9;color:#b02}'
+   +'.total-row td{background:#faf8f5;font-weight:700;border-top:2px solid #ddd}'
+   +'.grand{margin-top:20px;background:#e0f4ed;border:1px solid #9fe0cb;border-radius:8px;padding:12px 16px;font-size:15px;font-weight:700;color:#074f3c}'
+   +'.footer{text-align:center;font-size:11px;color:#aaa;margin-top:16px}'
+   +'@media print{body{background:#fff;padding:0}.wrap{max-width:none}.header{border-radius:0}.body{border:none}table{page-break-inside:auto}tr{page-break-inside:avoid}}';
+  var h='<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><title>'+ex(o.title||'דוח חובות — ארזים הנדסה')+'</title><style>'+s+'</style></head><body><div class="wrap">';
+  h+='<div class="header"><h1>📑 '+ex(o.title||'דוח חובות פתוחים')+'</h1><p>מ.ס ארזים הנדסה בע"מ · '+dateStr+'</p></div><div class="body">';
+  if(greet)h+='<p class="intro">'+ex(greet)+'</p>';
+  h+='<p class="intro">'+intro+'</p>';
+  if(d.orders.length){
+    h+='<h2>⚠️ פרויקטים הממתינים להזמנת עבודה ('+d.orders.length+')</h2>';
+    h+='<table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>פרויקט</th><th>היקף (ללא מע"מ)</th><th>שכ"ט פיקוח (ללא מע"מ)</th><th>כולל מע"מ</th><th>סטטוס</th></tr></thead><tbody>';
+    d.orders.forEach(function(r){
+      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.p.name)+'</strong>'+(r.p.project_number?'<div style="font-size:11px;color:#888">'+ex(r.p.project_number)+'</div>':'')+'</td><td>'+(r.scope?fc(r.scope):'—')+'</td><td class="num">'+fc(r.net)+'</td><td>'+fc(withVat(r.net))+'</td><td><span class="badge '+(r.p.status==='pending_order'?'badge-amber':'badge-red')+'">'+ex(r.st)+'</span></td></tr>';
+    });
+    h+='<tr class="total-row"><td colspan="4">סה"כ ('+d.orders.length+' פרויקטים)</td><td>'+fc(d.ordSum)+'</td><td>'+fc(withVat(d.ordSum))+'</td><td></td></tr></tbody></table>';
+  }
+  if(d.invs.length){
+    h+='<h2>💰 חשבונות שהוגשו וטרם שולמו ('+d.invs.length+')</h2>';
+    h+='<table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>פרויקט</th><th>סוג מסמך</th><th>מס׳</th><th>הוגש</th><th>מועד פירעון</th><th>סכום</th></tr></thead><tbody>';
+    d.invs.forEach(function(r){
+      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.proj)+'</strong></td><td>'+ex(r.i.invoice_type||'')+'</td><td>'+ex(r.i.invoice_number||'—')+'</td><td>'+fd(invBaseDate(r.i))+'</td><td>'+(r.due?fd(r.due):'—')+(r.late?' <span class="badge badge-late">באיחור '+r.days+' ימים</span>':'')+'</td><td class="num">'+fc(r.amt)+'</td></tr>';
+    });
+    h+='<tr class="total-row"><td colspan="7">סה"כ ('+d.invs.length+' חשבונות)</td><td>'+fc(d.invSum)+'</td></tr></tbody></table>';
+  }
+  h+='<div class="grand">סה"כ חשיפה: '+fc(d.ordSum+d.invSum)+' <span style="font-weight:400;font-size:12px">(ממתין להזמנה '+fc(d.ordSum)+' · טרם שולם '+fc(d.invSum)+')</span></div>';
+  h+='<p class="intro" style="margin-top:18px">בכל שאלה ניתן לפנות אליי במייל או בטלפון.<br>תודה רבה,<br><strong>משה סעדה</strong> · מ.ס ארזים הנדסה בע"מ</p>';
+  h+='</div><div class="footer">הופק ממערכת ניהול הפיקוח של ארזים הנדסה · שוטף+30 · הסכומים בש"ח</div></div></body></html>';
+  return h;
+}
+/* ── PDF (print-to-PDF window) ── */
+function dbtPdf(){
+  var d=debtData();
+  if(!d.orders.length&&!d.invs.length){alert('אין נתונים להפקה');return;}
+  var w=window.open('','_blank');
+  if(!w){alert('הדפדפן חסם את החלון — אפשר חלונות קופצים לאתר זה');return;}
+  w.document.write(dbtDocHtml(d,{title:'דוח חובות — '+dbtScopeLabel(),scope:dbtScopeLabel()}));
+  w.document.close();w.focus();
+  setTimeout(function(){try{w.print();}catch(e){}},400);
+}
+/* ── Excel ── */
+function loadXLSX(cb){
+  if(window.XLSX)return cb();
+  var srcs=['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'];
+  var i=0;
+  (function next(){
+    if(i>=srcs.length){alert('לא ניתן לטעון את מנוע האקסל — בדוק חיבור לאינטרנט');return;}
+    var s=document.createElement('script');s.src=srcs[i++];
+    s.onload=function(){window.XLSX?cb():next();};s.onerror=next;
+    document.head.appendChild(s);
+  })();
+}
+function dbtXlsx(){
+  var d=debtData();
+  if(!d.orders.length&&!d.invs.length){alert('אין נתונים לייצוא');return;}
+  loadXLSX(function(){
+    var wb=XLSX.utils.book_new();
+    var add=function(name,aoa,cols){
+      var ws=XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols']=cols.map(function(w){return{wch:w};});
+      ws['!views']=[{RTL:true}];
+      XLSX.utils.book_append_sheet(wb,ws,name);
+    };
+    if(d.orders.length){
+      var a=[['רשות','גורם מטפל','מס׳ פרויקט','שם הפרויקט','מחלקה','היקף פרויקט (ללא מע"מ)','שכ"ט פיקוח (ללא מע"מ)','כולל מע"מ','סטטוס']];
+      d.orders.forEach(function(r){a.push([r.client,r.handler,r.p.project_number||'',r.p.name||'',r.dept,r.scope||'',r.net,withVat(r.net),r.st]);});
+      a.push(['','','','','סה"כ ('+d.orders.length+')','',d.ordSum,withVat(d.ordSum),'']);
+      add('ממתין להזמנת עבודה',a,[20,16,14,34,20,20,20,14,24]);
+    }
+    if(d.invs.length){
+      var b=[['רשות','גורם מטפל','פרויקט','סוג מסמך','מס׳ מסמך','תאריך הגשה','מועד פירעון (שוטף+30)','ימי איחור','סכום']];
+      d.invs.forEach(function(r){b.push([r.client,r.handler,r.proj,r.i.invoice_type||'',r.i.invoice_number||'',fd(invBaseDate(r.i)),r.due?fd(r.due):'',r.late?r.days:'',r.amt]);});
+      b.push(['','','','','','','סה"כ ('+d.invs.length+')','',d.invSum]);
+      add('הוגש וטרם שולם',b,[20,16,34,14,14,14,20,10,14]);
+    }
+    /* summary by client × handler */
+    var m={};
+    d.orders.forEach(function(r){var k=r.client+'|'+r.handler;if(!m[k])m[k]={c:r.client,h:r.handler,oc:0,os:0,ic:0,is:0};m[k].oc++;m[k].os+=r.net;});
+    d.invs.forEach(function(r){var k=r.client+'|'+r.handler;if(!m[k])m[k]={c:r.client,h:r.handler,oc:0,os:0,ic:0,is:0};m[k].ic++;m[k].is+=r.amt;});
+    var s=[['רשות','גורם מטפל','פרויקטים ללא הזמנה','סכום ממתין להזמנה','חשבונות פתוחים','סכום טרם שולם','סה"כ חשיפה']];
+    Object.keys(m).sort().forEach(function(k){var x=m[k];s.push([x.c,x.h,x.oc,x.os,x.ic,x.is,x.os+x.is]);});
+    s.push(['סה"כ','',d.orders.length,d.ordSum,d.invs.length,d.invSum,d.ordSum+d.invSum]);
+    add('סיכום',s,[22,18,18,20,16,18,16]);
+    var fn='דוח חובות — '+dbtScopeLabel().replace(/[\\\/:*?"<>|]/g,' ').slice(0,60)+' — '+new Date().toLocaleDateString('he-IL')+'.xlsx';
+    XLSX.writeFile(wb,fn);
+  });
+}
+/* ── plain-text copy (WhatsApp) ── */
+function dbtCopy(){
+  var d=debtData();var L=['דוח חובות — '+dbtScopeLabel(),'מ.ס ארזים הנדסה · '+new Date().toLocaleDateString('he-IL'),''];
+  if(d.orders.length){L.push('⚠️ ממתין להזמנת עבודה ('+d.orders.length+'):');d.orders.forEach(function(r){L.push('  • '+r.client+' | '+r.handler+' | '+r.p.name+' — '+fc(r.net));});L.push('  סה"כ: '+fc(d.ordSum),'');}
+  if(d.invs.length){L.push('💰 הוגש וטרם שולם ('+d.invs.length+'):');d.invs.forEach(function(r){L.push('  • '+r.client+' | '+r.proj+' | '+(r.i.invoice_type||'')+' '+(r.i.invoice_number||'')+' — '+fc(r.amt)+(r.late?' ⏰ באיחור':''));});L.push('  סה"כ: '+fc(d.invSum),'');}
+  L.push('סה"כ חשיפה: '+fc(d.ordSum+d.invSum));
+  var t=L.join('\n');
+  (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject()).then(function(){alert('הועתק — אפשר להדביק בוואטסאפ/מייל');}).catch(function(){prompt('העתק ידנית:',t);});
+}
+/* ── EMAIL — manual send, no agent involved ── */
+function dbtSend(msgs,btnId){
+  var btn=btnId?document.getElementById(btnId):null;
+  if(btn){btn.disabled=true;btn.textContent='שולח...';}
+  return afetch(SB_URL+'/functions/v1/debt-mail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:msgs})})
+  .then(function(r){return r.json();})
+  .then(function(res){
+    if(res.ok)alert('✅ נשלחו '+(res.sent||0)+' מיילים'+(res.errors&&res.errors.length?('\n⚠️ שגיאות: '+res.errors.join(', ')):''));
+    else alert('שגיאה בשליחה: '+(res.error||''));
+  })
+  .catch(function(){alert('שגיאה בחיבור לשרת המייל');})
+  .finally(function(){go('debts');});
+}
+function dbtMailSelf(){
+  var d=debtData();
+  if(!d.orders.length&&!d.invs.length){alert('אין נתונים לשליחה');return;}
+  if(!confirm('לשלוח את דוח החובות אליך בלבד (moshe@arazim-eng.co.il)?\nלא נשלח דבר לגורמים המטפלים.'))return;
+  dbtSend([{to:['moshe@arazim-eng.co.il'],subject:'דוח חובות — '+dbtScopeLabel()+' · '+fc(d.ordSum+d.invSum),
+    html:dbtDocHtml(d,{title:'דוח חובות — '+dbtScopeLabel(),scope:dbtScopeLabel(),greeting:'משה'})}]);
+}
+function dbtMailHandlers(){
+  var selH=dbtSel('hns'),selC=dbtSel('cls');
+  if(!selH.length){alert('בחר קודם גורם/ים מטפלים — כדי לא לשלוח בטעות לכולם');return;}
+  var msgs=[],missing=[],empty=[],lines=[];
+  selH.forEach(function(k){
+    if(k==='__none')return;
+    var name=dbtHandlerName(k);
+    var rec=handlerRec(name);
+    if(!rec||!rec.email){missing.push(name);return;}
+    var d=debtData({cls:selC,hns:[k]});
+    if(!d.orders.length&&!d.invs.length){empty.push(name);return;}
+    msgs.push({to:[rec.email],subject:'ריכוז פרויקטים וחשבונות פתוחים — '+name+' · '+fc(d.ordSum+d.invSum),
+      html:dbtDocHtml(d,{title:'ריכוז פתוחים — '+name,greeting:name,forHandler:true})});
+    lines.push('• '+name+' → '+rec.email+'  ('+d.orders.length+' ללא הזמנה, '+d.invs.length+' לא שולמו, '+fc(d.ordSum+d.invSum)+')');
+  });
+  var warn='';
+  if(missing.length)warn+='\n⚠️ ללא מייל (לא יישלח): '+missing.join(', ');
+  if(empty.length)warn+='\nℹ️ אין להם חובות פתוחים: '+empty.join(', ');
+  if(!msgs.length){alert('אין למי לשלוח.'+warn);return;}
+  if(!confirm('לשלוח '+msgs.length+' מיילים ישירות לגורמים בעירייה?\n\n'+lines.join('\n')+'\n\nהמייל יישלח מ-moshe@arazim-eng.co.il.'+warn))return;
+  dbtSend(msgs);
+}
 /* ── MODAL UTILS ── */
 function showM(html){document.getElementById('modal').innerHTML=html;document.getElementById('mbg').classList.add('open');}
 function closeM(){document.getElementById('mbg').classList.remove('open');}
 function bgx(evt){if(evt.target===document.getElementById('mbg'))closeM();}
 /* ── PROJECT MODAL ── */
-function dOpts(cid,selId){var a=DP[cid]||[],r='';for(var i=0;i<a.length;i++)r+='<option value="'+a[i].id+'"'+(a[i].id===selId?' selected':'')+'>'+ex(a[i].name)+'</option>';return r;}
-function onCC(cid){document.getElementById('p-d').innerHTML=dOpts(cid,'');var c=gc(cid);if(c.ent)document.getElementById('p-en').value=c.ent;var w=document.getElementById('p-cco-wrap');if(w)w.style.display=cid==='other'?'flex':'none';}
+function dOpts(cid,selId){var a=DP[cid]||[],r='',oth=isOtherDept(selId);for(var i=0;i<a.length;i++){var on=(a[i].id===selId)||(a[i].id==='other'&&oth);r+='<option value="'+a[i].id+'"'+(on?' selected':'')+'>'+ex(a[i].name)+'</option>';}return r;}
+function onCC(cid){document.getElementById('p-d').innerHTML=dOpts(cid,'');var c=gc(cid);if(c.ent)document.getElementById('p-en').value=c.ent;var w=document.getElementById('p-cco-wrap');if(w)w.style.display=cid==='other'?'flex':'none';onDeptChange();}
+function onDeptChange(){var s=document.getElementById('p-d'),w=document.getElementById('p-dco-wrap');if(!s||!w)return;w.style.display=s.value==='other'?'flex':'none';}
 /* ── VAT-aware form sync: net (ללא מע"מ) is the stored value; incl (כולל מע"מ) is derived, both editable ── */
 function fv(id){return parseFloat((document.getElementById(id)||{value:''}).value)||0;}
 function fset(id,v){var el=document.getElementById(id);if(el)el.value=v?String(v):'';}
@@ -753,7 +1076,8 @@ function openP(pid){
   h+='<div class="fg"><label class="flbl">סוג פרויקט</label><select class="fs" id="p-type" onchange="toggleProjType()"><option value="regular"'+(!isCont?' selected':'')+'>פרויקט רגיל (% פיקוח)</option><option value="contract"'+(isCont?' selected':'')+'>חוזה חודשי (לפי שעות)</option></select></div>';
   h+='<div class="fg"><label class="flbl">ישות</label><select class="fs" id="p-en"><option value="עוסק"'+(!p||p.entity!=='חברה'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(p&&p.entity==='חברה'?' selected':'')+'>חברה בע"מ</option></select></div>';
   h+='<div class="fg"><label class="flbl">לקוח</label><select class="fs" id="p-cl" onchange="onCC(this.value)">'+clO+'</select></div>';
-  h+='<div class="fg"><label class="flbl">מחלקה</label><select class="fs" id="p-d">'+dOpts(iCl,p?p.department_id:'')+'</select></div>';
+  h+='<div class="fg"><label class="flbl">מחלקה</label><select class="fs" id="p-d" onchange="onDeptChange()">'+dOpts(iCl,p?p.department_id:'')+'</select></div>';
+  h+='<div class="fg w2" id="p-dco-wrap" style="display:'+(p&&isOtherDept(p.department_id)?'flex':'none')+'"><label class="flbl" style="color:#8a6d3b">שם המחלקה (אחר)</label><input class="fi" id="p-dco" placeholder="הקלד שם מחלקה / גורם חופשי" value="'+ex(p?otherDeptName(p.department_id):'')+'"></div>';
   h+='<div class="fg w2" id="p-cco-wrap" style="display:'+(iCl==='other'?'flex':'none')+'"><label class="flbl" style="color:#8a6d3b">שם הלקוח (אחר) *</label><input class="fi" id="p-cco" placeholder="הקלד שם לקוח חופשי" value="'+ex(p?p.custom_client||'':'')+'"></div>';
   h+='<div class="fg w2"><label class="flbl">שם הפרויקט *</label><input class="fi" id="p-nm" value="'+ex(p?p.name||'':'')+'"></div>';
   var hnO='';handlersList().forEach(function(n){hnO+='<option value="'+ex(n)+'">';});
@@ -791,7 +1115,9 @@ function svP2(pid){
   var cid=document.getElementById('p-cl').value;
   var cco=(document.getElementById('p-cco')||{value:''}).value.trim();
   if(cid==='other'&&!cco){alert('בחרת לקוח "אחר" — נא להקליד את שם הלקוח');return;}
-  var data={client_id:cid,custom_client:cid==='other'?cco:null,department_id:document.getElementById('p-d').value,name:nm,contact_name:normHandler(document.getElementById('p-co').value),entity:document.getElementById('p-en').value,project_type:ptype,work_order_number:document.getElementById('p-wo').value.trim(),status:document.getElementById('p-st').value,notes:document.getElementById('p-nt').value.trim(),updated_at:new Date().toISOString()};
+  var did=document.getElementById('p-d').value;
+  if(did==='other'){var dco=(document.getElementById('p-dco')||{value:''}).value.trim();if(!dco){alert('בחרת מחלקה "אחר" — נא להקליד את שם המחלקה');return;}did='other:'+dco;}
+  var data={client_id:cid,custom_client:cid==='other'?cco:null,department_id:did,name:nm,contact_name:normHandler(document.getElementById('p-co').value),entity:document.getElementById('p-en').value,project_type:ptype,work_order_number:document.getElementById('p-wo').value.trim(),status:document.getElementById('p-st').value,notes:document.getElementById('p-nt').value.trim(),updated_at:new Date().toISOString()};
   if(ptype==='regular'){data.scope_amount=parseFloat(document.getElementById('p-sc').value)||null;data.supervision_pct=parseFloat(document.getElementById('p-pc').value)||null;data.supervision_amount=parseFloat(document.getElementById('p-am').value)||null;}
   else{data.contract_start=document.getElementById('p-cs').value||null;data.contract_end=document.getElementById('p-ce').value||null;data.contract_hourly_rate=parseFloat(document.getElementById('p-chr').value)||null;data.contract_avg_hours=parseFloat(document.getElementById('p-cah').value)||null;data.supervision_amount=null;}
   if(pid){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i]=Object.assign({},D.projects[i],data);break;}}
