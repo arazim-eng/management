@@ -585,9 +585,13 @@ function vAl(){
 /* ── CASHFLOW (שוטף+30) ── */
 function invBaseDate(i){return i.date_sent||(i.created_at?i.created_at.slice(0,10):null);}
 function dueDate(i){var b=invBaseDate(i);if(!b)return null;var d=new Date(b);return new Date(d.getFullYear(),d.getMonth()+2,0);}
+/* an invoice is "late" only from the day AFTER its due date — not at 00:00 of the due date itself */
+function todayMidnight(){var t=new Date();return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
+function isLate(dd){return !!(dd&&dd<todayMidnight());}
+function lateDays(dd){return dd?Math.round((todayMidnight()-dd)/86400000):0;}
 function pendingInvs(){return cashflowInvs();}
 function unassigned(){return D.invoices.filter(function(i){return !i.project_id&&i.invoice_type!=='הצעת מחיר';});}
-function overdueInvs(){var t=new Date();return pendingInvs().filter(function(i){var d=dueDate(i);return d&&d<t;});}
+function overdueInvs(){return pendingInvs().filter(function(i){return isLate(dueDate(i));});}
 function invClient(i){if(i.project_id){for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){var p=D.projects[j];var c=gc(p.client_id);return{id:p.client_id,name:cliName(p),col:c.col||'#888'};}}return null;}
 function markPaid(iid){
   if(!confirm('לסמן חשבונית זו כשולמה?'))return;
@@ -598,7 +602,7 @@ function markPaid(iid){
 function vCash(){
   var pend=pendingInvs();var today=new Date();
   var overdue=[];
-  pend.forEach(function(i){var d=dueDate(i);if(d&&d<today)overdue.push(i);});
+  pend.forEach(function(i){var d=dueDate(i);if(isLate(d))overdue.push(i);});
   var un=unassigned();
   var totPend=asum(pend,'amount'),totOver=asum(overdue,'amount');
   var em=0,enx=0;var cm=today.getMonth(),cy=today.getFullYear();
@@ -614,7 +618,7 @@ function vCash(){
     un.forEach(function(i){var s2=gi(i.status);h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000"><span><strong>'+ex(i.invoice_type||'')+' '+ex(i.invoice_number||'—')+'</strong> | '+fd(invBaseDate(i))+'</span><span class="pill" style="color:'+s2.c+';background:'+s2.bg+';cursor:default">'+s2.l+'</span><span style="font-weight:700;margin-right:auto">'+fc(i.amount)+'</span><span class="al-act" style="color:#b02" onclick="openI(\''+i.id+'\',null)">שייך לפרויקט ▸</span></div>';});
   }
   var byMonth={};
-  pend.forEach(function(i){var d=dueDate(i);if(!d)return;var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);if(d<today)k='overdue';if(!byMonth[k])byMonth[k]={sum:0,cnt:0,cert:0,exp:0};var a=Number(i.amount)||0;byMonth[k].sum+=a;byMonth[k].cnt++;if(invCertain(i))byMonth[k].cert+=a;else byMonth[k].exp+=a;});
+  pend.forEach(function(i){var d=dueDate(i);if(!d)return;var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);if(isLate(d))k='overdue';if(!byMonth[k])byMonth[k]={sum:0,cnt:0,cert:0,exp:0};var a=Number(i.amount)||0;byMonth[k].sum+=a;byMonth[k].cnt++;if(invCertain(i))byMonth[k].cert+=a;else byMonth[k].exp+=a;});
   var keys=Object.keys(byMonth).filter(function(k){return k!=='overdue';}).sort();
   h+='<div class="sec-hdr" style="margin-top:14px">📅 תחזית תקבולים לפי חודש (שוטף+30)</div><div class="tbl-box"><table><thead><tr><th>חודש</th><th>חשבוניות</th><th>🟢 ודאי</th><th>🟡 צפוי</th><th>סה"כ</th></tr></thead><tbody>';
   if(byMonth['overdue'])h+='<tr><td style="color:#b02;font-weight:700">⏰ באיחור — לגבייה מיידית</td><td>'+byMonth['overdue'].cnt+'</td><td style="color:#3a6b10">'+fc(byMonth['overdue'].cert)+'</td><td style="color:#834e0a">'+fc(byMonth['overdue'].exp)+'</td><td style="font-weight:700;color:#b02">'+fc(byMonth['overdue'].sum)+'</td></tr>';
@@ -633,7 +637,7 @@ function vCash(){
   if(!sorted.length)h+='<tr><td colspan="7" class="empty">אין חשבוניות פתוחות 🎉</td></tr>';
   sorted.forEach(function(i){
     var p2=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p2=D.projects[j];break;}
-    var c2=invClient(i);var d=dueDate(i);var late=d&&d<today;var days=d?Math.round((today-d)/86400000):0;var s2=gi(i.status);var cert=invCertain(i);
+    var c2=invClient(i);var d=dueDate(i);var late=isLate(d);var days=lateDays(d);var s2=gi(i.status);var cert=invCertain(i);
     h+='<tr><td style="font-weight:700"><span title="'+(cert?'חשבונית מס — ודאי':'חשבון עסקה עם הזמנה — צפוי')+'">'+(cert?'🟢':'🟡')+'</span> '+(i.file_url?'<a href="#" onclick="openPDF(\''+i.file_url+'\');return false">📄</a> ':'')+ex(i.invoice_number||'—')+'<div style="font-size:10px;color:#aaa;font-weight:400">'+ex(i.invoice_type||'')+'</div></td>';
     h+='<td><div style="font-weight:600">'+(p2?ex(p2.name):'<span style="color:#b02">⚠️ לשיוך</span>')+'</div><div style="font-size:11px;color:#888">'+(c2?ex(c2.name):'')+'</div></td>';
     h+='<td style="font-size:12px;color:#888">'+fd(invBaseDate(i))+'</td>';
@@ -704,7 +708,7 @@ function handlerSummaryText(name){
   }
   if(d.pend.length){
     L.push('💰 חשבוניות שהוגשו וטרם שולמו ('+d.pend.length+'):');
-    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=dd&&dd<new Date();L.push('  • '+(i.invoice_type||'חשבונית')+' '+(i.invoice_number||'')+' — '+(p?p.name:'')+' — '+fc(i.amount)+(late?' ⏰ באיחור':''));});
+    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=isLate(dd);L.push('  • '+(i.invoice_type||'חשבונית')+' '+(i.invoice_number||'')+' — '+(p?p.name:'')+' — '+fc(i.amount)+(late?' ⏰ באיחור':''));});
     L.push('  סה"כ: '+fc(d.pendSum));
   }
   if(!d.noOrd.length&&!d.pend.length)L.push('✅ אין פריטים פתוחים');
@@ -765,7 +769,7 @@ function vHand(){
   if(!d.pend.length)h+='<div style="color:#bbb;font-size:13px;padding:6px 0">✅ אין חשבוניות ממתינות</div>';
   else{
     h+='<div class="tbl-box"><table><thead><tr><th>מספר</th><th>פרויקט</th><th>הוגש</th><th>מועד פירעון (שוטף+30)</th><th>סכום</th><th></th></tr></thead><tbody>';
-    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=dd&&dd<new Date();
+    d.pend.forEach(function(i){var p=null;for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===i.project_id){p=D.projects[j];break;}var dd=dueDate(i);var late=isLate(dd);
       h+='<tr><td style="font-weight:700">'+(i.file_url?'<a href="#" onclick="openPDF(\''+i.file_url+'\');return false">📄</a> ':'')+ex(i.invoice_number||'—')+'</td><td>'+(p?ex(p.name):'—')+'</td><td style="font-size:12px;color:#888">'+fd(invBaseDate(i))+'</td><td style="color:'+(late?'#b02':'#3a6b10')+';font-weight:600">'+(dd?fd(dd):'—')+(late?' ⏰':'')+'</td><td style="font-weight:700;color:#834e0a">'+fc(i.amount)+'</td><td><button class="btn btn-sm" style="color:#3a6b10;border-color:#bde090" onclick="markPaid(\''+i.id+'\')">✓ שולם</button></td></tr>';});
     h+='</tbody><tfoot><tr><td colspan="4">סה"כ</td><td style="color:#834e0a">'+fc(d.pendSum)+'</td><td></td></tr></tfoot></table></div>';
   }
@@ -823,10 +827,10 @@ function debtData(over){
       var p=projById(i.project_id);
       if(p){if(!okP(p))return;}
       else if(selC.length||selH.length)return;
-      var dd=dueDate(i),late=dd&&dd<today;
+      var dd=dueDate(i),late=isLate(dd);
       invs.push({i:i,p:p,client:p?cliName(p):'ללא שיוך לפרויקט',handler:p?(normHandler(p.contact_name)||'—'):'—',
-        proj:p?p.name:'⚠️ ללא שיוך',amt:Number(i.amount)||0,due:dd,late:!!late,
-        days:late?Math.round((today-dd)/86400000):0,cert:invCertain(i)});
+        proj:p?p.name:'⚠️ ללא שיוך',amt:Number(i.amount)||0,due:dd,late:late,
+        days:lateDays(dd),cert:invCertain(i)});
     });
   }
   orders.sort(function(a,b){return a.client.localeCompare(b.client,'he')||b.net-a.net;});
