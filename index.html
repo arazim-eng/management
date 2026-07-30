@@ -662,7 +662,8 @@ function handlersList(){
 function openHandlerNew(){
   var h='<div class="mhdr"><span class="mtitle">➕ גורם מטפל חדש</span><button class="mx" onclick="closeM()">✕</button></div>';
   h+='<div class="fg2"><div class="fg w2"><label class="flbl">שם הגורם המטפל *</label><input class="fi" id="hn-nm" placeholder="לדוגמה: קובי שמואלי"></div>';
-  h+='<div class="fg w2"><label class="flbl">מייל (לשליחת דוחות)</label><input class="fi" id="hn-em" type="email" placeholder="name@jerusalem.muni.il"></div>';
+  h+='<div class="fg w2"><label class="flbl">מייל (לשליחת דוחות) — אפשר כמה, מופרדים בפסיק</label><input class="fi" id="hn-em" placeholder="name@jerusalem.muni.il, second@jerusalem.muni.il"></div>';
+  h+='<div class="fg w2" style="margin-top:-4px"><span style="font-size:11px;color:#888">גורם משותף (כמו "תהילה + קובי") — הזן את שתי הכתובות והמייל יישלח לשניהם יחד.</span></div>';
   h+='<div class="fg w2" style="flex-direction:row;align-items:center;gap:7px;background:#faf8f5;border:1px solid #eee;border-radius:7px;padding:8px 12px"><input type="checkbox" id="hn-wk" checked style="width:16px;height:16px"><label for="hn-wk" style="font-size:12px;color:#5a3200;cursor:pointer">📧 לכלול במייל השבועי האוטומטי</label></div></div>';
   h+='<div class="info-bar" style="margin:12px 0 0;font-size:12px">אחרי השמירה הגורם יופיע ברשימת הבחירה של "גורם מטפל" בטופס פרויקט, בדוח החובות ובמייל השבועי.</div>';
   h+='<div class="mftr"><button class="btn" onclick="closeM()">ביטול</button><button class="btn btn-blue" onclick="svHandlerNew()">💾 שמור</button></div>';
@@ -674,7 +675,8 @@ function svHandlerNew(){
   if(!nm){alert('נא להזין שם');return;}
   if(handlerRec(nm)||handlersList().some(function(n){return n.toLowerCase()===nm.toLowerCase();})){alert('הגורם "'+nm+'" כבר קיים ברשימה');return;}
   var em=document.getElementById('hn-em').value.trim();
-  if(em&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){alert('כתובת מייל לא תקינה');return;}
+  if(em&&!emailsValid(em)){alert('כתובת מייל לא תקינה — אפשר כמה כתובות מופרדות בפסיק');return;}
+  em=joinEmails(em);
   var rec={id:uid(),name:nm,email:em||null,send_weekly:document.getElementById('hn-wk').checked,created_at:new Date().toISOString(),updated_at:new Date().toISOString()};
   D.handlers.push(rec);localStorage.setItem('az_h',JSON.stringify(D.handlers));cloudSave('handlers',rec);
   closeM();go('handlers');
@@ -719,11 +721,17 @@ function copyHandlerSummary(name){
   (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(t):Promise.reject()).then(function(){alert('הסיכום הועתק — אפשר להדביק בוואטסאפ/מייל');}).catch(function(){prompt('העתק ידנית:',t);});
 }
 /* ── handler weekly-email settings (handlers table) ── */
+/* a handler may hold MORE THAN ONE address — e.g. "תהילה + קובי" (פלך) goes to both of them.
+   stored comma-separated in handlers.email; every send splits it back into individual recipients. */
+function splitEmails(v){return String(v||'').split(/[,;\s]+/).map(function(s){return s.trim();}).filter(Boolean);}
+function emailsValid(v){var a=splitEmails(v),re=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;for(var i=0;i<a.length;i++)if(!re.test(a[i]))return false;return true;}
+function joinEmails(v){return splitEmails(v).join(', ');}
 function handlerRec(name){var k=normHandler(name).toLowerCase();for(var i=0;i<D.handlers.length;i++)if(normHandler(D.handlers[i].name).toLowerCase()===k)return D.handlers[i];return null;}
 function saveHandlerEmail(name,elId){
   var em=(document.getElementById('he-'+elId)||{value:''}).value.trim();
   var wk=(document.getElementById('hw-'+elId)||{checked:true}).checked;
-  if(em&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){alert('כתובת מייל לא תקינה');return;}
+  if(em&&!emailsValid(em)){alert('כתובת מייל לא תקינה — אפשר כמה כתובות מופרדות בפסיק');return;}
+  em=joinEmails(em);
   var h=handlerRec(name);
   if(!h){h={id:uid(),name:normHandler(name),created_at:new Date().toISOString()};D.handlers.push(h);}
   h.email=em||null;h.send_weekly=wk;h.updated_at=new Date().toISOString();
@@ -742,7 +750,7 @@ function sendHandlerTest(){
 function vHand(){
   var names=handlersList();
   var sel=D.f.hn||'';
-  var h='<div class="info-bar">👤 סינון לפי <strong>גורם מטפל</strong> — מה כל גורם בעירייה חייב לך: הזמנות עבודה שטרם הוצאו וחשבוניות שטרם שולמו. שב איתו, הראה לו, והעתק סיכום בלחיצה.<br>📧 <strong>מייל שבועי אוטומטי</strong> (יום ראשון 8:00): כל גורם שמולא לו מייל וסומן ✓ יקבל טבלה של הפרויקטים שממתינים להזמנת עבודה. משה + יפעה מקבלים מייל סיכום מרוכז.<br><span style="font-size:12px">קבוצות מחלקה: <strong>בדק בית</strong> = קובי שמואלי + שלומי שוקרון (מייל משותף) · <strong>תכנון</strong> = תהילה ארז + סנדרה (תהילה תמיד מכותבת) · <strong>נגישות</strong> = לאה סנדרס + הדסה (שתיהן תמיד) · <strong>מוחמד</strong> ו<strong>שמואל לשם</strong> — בנפרד.</span> <button class="btn btn-sm" id="ht-btn" style="margin-right:6px" onclick="sendHandlerTest()">📨 שלח דוח בדיקה אליי</button></div>';
+  var h='<div class="info-bar">👤 סינון לפי <strong>גורם מטפל</strong> — מה כל גורם בעירייה חייב לך: הזמנות עבודה שטרם הוצאו וחשבוניות שטרם שולמו. שב איתו, הראה לו, והעתק סיכום בלחיצה.<br>📧 <strong>מייל שבועי אוטומטי</strong> (יום ראשון 8:00): כל גורם שמולא לו מייל וסומן ✓ יקבל טבלה של הפרויקטים שממתינים להזמנת עבודה. משה + יפעה מקבלים מייל סיכום מרוכז.<br><span style="font-size:12px">קבוצות מחלקה: <strong>בדק בית</strong> = קובי שמואלי + שלומי שוקרון (מייל משותף) · <strong>תכנון</strong> = תהילה ארז + סנדרה (תהילה תמיד מכותבת) · <strong>נגישות</strong> = לאה סנדרס + הדסה (שתיהן תמיד) · <strong>מוחמד</strong> ו<strong>שמואל לשם</strong> — בנפרד.<br>✉️ בשדה המייל אפשר להזין <strong>כמה כתובות מופרדות בפסיק</strong> — כולן יקבלו (למשל "תהילה + קובי" = המייל של תהילה ארז והמייל של קובי שמואלי).</span> <button class="btn btn-sm" id="ht-btn" style="margin-right:6px" onclick="sendHandlerTest()">📨 שלח דוח בדיקה אליי</button></div>';
   h+='<div class="fbar"><select onchange="D.f.hn=this.value;go(\'handlers\')"><option value="">— כל הגורמים —</option>';
   names.forEach(function(n){h+='<option value="'+ex(n)+'"'+(sel===n?' selected':'')+'>'+ex(n)+'</option>';});
   h+='</select>'+(sel?'<button class="btn btn-blue" onclick="copyHandlerSummary(\''+ex(sel)+'\')">📋 העתק סיכום ל'+ex(sel)+'</button><button class="btn btn-sm" onclick="D.f.hn=\'\';go(\'handlers\')">✕</button>':'')+'</div>';
@@ -755,7 +763,7 @@ function vHand(){
       h+='<td>'+(d.noOrd.length?'<span class="fin-warn">'+d.noOrd.length+' | '+fc(d.noOrdSum)+'</span>':'—')+'</td>';
       h+='<td>'+(d.pend.length?'<span class="fin-warn">'+d.pend.length+' | '+fc(d.pendSum)+'</span>':'—')+'</td>';
       h+='<td style="font-weight:700;color:#b02">'+fc(d.noOrdSum+d.pendSum)+'</td>';
-      h+='<td onclick="event.stopPropagation()" style="cursor:default;white-space:nowrap"><div style="display:flex;align-items:center;gap:4px"><input class="fi" id="he-'+ni+'" type="email" placeholder="מייל של הגורם" style="width:170px;padding:4px 8px;font-size:12px" value="'+ex(hr.email||'')+'"><input type="checkbox" id="hw-'+ni+'" title="שליחה שבועית פעילה"'+(hr.send_weekly===false?'':' checked')+'><button class="btn btn-sm" onclick="saveHandlerEmail(\''+ex(n)+'\','+ni+')">💾</button><span id="hs-'+ni+'" style="font-size:11px;color:#3a6b10;min-width:38px"></span></div></td>';
+      h+='<td onclick="event.stopPropagation()" style="cursor:default;white-space:nowrap"><div style="display:flex;align-items:center;gap:4px"><input class="fi" id="he-'+ni+'" placeholder="מייל — אפשר כמה, מופרדים בפסיק" title="אפשר להזין כמה כתובות מופרדות בפסיק — כולן יקבלו את המייל" style="width:230px;padding:4px 8px;font-size:12px" value="'+ex(hr.email||'')+'"><input type="checkbox" id="hw-'+ni+'" title="שליחה שבועית פעילה"'+(hr.send_weekly===false?'':' checked')+'><button class="btn btn-sm" onclick="saveHandlerEmail(\''+ex(n)+'\','+ni+')">💾</button><span id="hs-'+ni+'" style="font-size:11px;color:#3a6b10;min-width:38px"></span></div></td>';
       h+='<td style="color:#1860a8;font-size:12px;white-space:nowrap">פתח ▸'+(d.projs.length?'':' <button class="btn btn-sm btn-ghost btn-red" onclick="event.stopPropagation();delHandler(\''+ex(n)+'\')" title="מחק גורם">🗑</button>')+'</td></tr>';});
     h+='</tbody></table></div>';
     return h;
@@ -1036,12 +1044,13 @@ function dbtMailHandlers(){
     if(k==='__none')return;
     var name=dbtHandlerName(k);
     var rec=handlerRec(name);
-    if(!rec||!rec.email){missing.push(name);return;}
+    var addrs=rec?splitEmails(rec.email):[];
+    if(!addrs.length){missing.push(name);return;}
     var d=debtData({cls:selC,hns:[k]});
     if(!d.orders.length&&!d.invs.length){empty.push(name);return;}
-    msgs.push({to:[rec.email],subject:'ריכוז פרויקטים וחשבונות פתוחים — '+name+' · '+fc(d.ordSum+d.invSum),
+    msgs.push({to:addrs,subject:'ריכוז פרויקטים וחשבונות פתוחים — '+name+' · '+fc(d.ordSum+d.invSum),
       html:dbtDocHtml(d,{title:'ריכוז פתוחים — '+name,greeting:name,forHandler:true})});
-    lines.push('• '+name+' → '+rec.email+'  ('+d.orders.length+' ללא הזמנה, '+d.invs.length+' לא שולמו, '+fc(d.ordSum+d.invSum)+')');
+    lines.push('• '+name+' → '+addrs.join(' + ')+'  ('+d.orders.length+' ללא הזמנה, '+d.invs.length+' לא שולמו, '+fc(d.ordSum+d.invSum)+')');
   });
   var warn='';
   if(missing.length)warn+='\n⚠️ ללא מייל (לא יישלח): '+missing.join(', ');

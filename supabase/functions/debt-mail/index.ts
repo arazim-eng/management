@@ -60,8 +60,10 @@ async function allowedRecipients(): Promise<Set<string>> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/handlers?select=email`, { headers });
   const rows = await res.json();
   const set = new Set(OFFICE.map((e) => e.toLowerCase()));
+  // a handler row may hold several comma-separated addresses (e.g. "תהילה + קובי" = both of them)
   (Array.isArray(rows) ? rows : []).forEach((h: any) => {
-    if (h?.email) set.add(String(h.email).trim().toLowerCase());
+    String(h?.email || "").split(/[,;\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean)
+      .forEach((e) => set.add(e));
   });
   return set;
 }

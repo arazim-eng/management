@@ -40,6 +40,9 @@ function fc(n: any): string {
   return "₪" + x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 const norm = (v: any) => String(v || "").trim().replace(/\s+/g, " ");
+// a handler row may carry several comma-separated addresses — e.g. "תהילה + קובי" (פלך) mails both
+const emails = (v: any): string[] =>
+  String(v || "").split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean);
 
 async function getAzureToken(): Promise<string> {
   const res = await fetch(`https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`, {
@@ -195,7 +198,7 @@ Deno.serve(async (req) => {
       const toList = memberKeys
         .map((mk) => emailByName[mk])
         .filter((r) => r && r.email && r.send)
-        .map((r) => r!.email!) ;
+        .flatMap((r) => emails(r!.email));
       if (!toList.length) { skipped++; results.push({ group: g.title, status: "no-email" }); continue; }
       const names = g.members.filter((m) => {
         if (m.includes("+")) return false; // pseudo-member (shared handler) — not a greeting name
@@ -211,7 +214,7 @@ Deno.serve(async (req) => {
       const { name, projs } = byHandler[k];
       const rec = emailByName[k];
       if (!rec || !rec.email || !rec.send) { skipped++; results.push({ handler: name, status: "no-email" }); continue; }
-      await deliver(name, name, [rec.email], projs, false);
+      await deliver(name, name, emails(rec.email), projs, false);
     }
 
     // 3) combined summary to Moshe + Yifa — who got what, and the grand total
