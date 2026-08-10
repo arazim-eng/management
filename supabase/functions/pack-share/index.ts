@@ -81,12 +81,21 @@ Deno.serve(async (req) => {
   if (!ent) return errPage("המסמכים אינם זמינים. נא לפנות למשרד ארזים הנדסה.");
 
   let projName = "";
+  // project-folder files count toward the package too (uploaded once in תיק פרויקט)
+  let projFiles: { cat?: string; name: string; path: string }[] = [];
   if (share.kind === "i" && ent.project_id) {
-    const ps = await rest(`projects?id=eq.${encodeURIComponent(ent.project_id)}&select=name,project_number`);
-    if (ps?.[0]) projName = ps[0].name + (ps[0].project_number ? ` · ${ps[0].project_number}` : "");
+    const ps = await rest(`projects?id=eq.${encodeURIComponent(ent.project_id)}&select=name,project_number,files`);
+    if (ps?.[0]) {
+      projName = ps[0].name + (ps[0].project_number ? ` · ${ps[0].project_number}` : "");
+      projFiles = ps[0].files ?? [];
+    }
   } else if (share.kind === "p") {
     projName = ent.name + (ent.project_number ? ` · ${ent.project_number}` : "");
+    projFiles = ent.files ?? [];
   }
+  const PFMAP: Record<string, string> = {
+    "הצעת מחיר": "quote", "חשבון מאושר": "acc", "כתב כמויות": "boq", "חשבונית קבלן": "cinv",
+  };
   const sub = share.kind === "i"
     ? `${ent.invoice_type || "מסמך"} ${ent.invoice_number || ""}${ent.amount ? " · " + Number(ent.amount).toLocaleString("he-IL") + " ₪" : ""}`
     : "פרויקט הממתין להזמנת עבודה";
@@ -105,6 +114,10 @@ Deno.serve(async (req) => {
     if (s.k === "quote" && share.kind === "i" && ent.file_url && !(s.files?.length)) {
       const url = ent.file_url.startsWith("http") ? ent.file_url : await signPath(ent.file_url);
       if (url) sd.push({ label: s.label, name: "המסמך המקורי", url });
+    }
+    for (const f of projFiles.filter((f) => PFMAP[f.cat ?? ""] === s.k)) {
+      const url = await signPath(f.path);
+      if (url) sd.push({ label: s.label, name: f.name, url });
     }
     for (const f of s.files ?? []) {
       const url = await signPath(f.path);
