@@ -914,7 +914,7 @@ function openPack(kind,id){
     if(s.k.indexOf('x_')===0)h+='<button class="btn btn-sm btn-ghost btn-red" title="מחק משבצת" onclick="packDelSlot(\''+kind+'\',\''+ex(js1(id))+'\','+ix+')">🗑</button>';
     h+='</div>';
     if(auto)h+='<div style="font-size:12px;margin-top:6px"><a href="#" onclick="openPDF(\''+ex(js1(e.file_url))+'\');return false" style="color:#3a6b10;text-decoration:none">📄 המסמך של החשבון עצמו (אוטומטי) — לצפייה</a></div>';
-    packProjFiles(kind,e,s.k).forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><a href="#" onclick="openPDF(\''+ex(js1(f.path))+'\');return false" style="color:#3a6b10;font-weight:600;flex:1;text-decoration:none" title="מסמך מתיק הפרויקט — נספר אוטומטית">📁 '+ex(f.name)+' <span style="color:#8ab86a;font-weight:400">(מתיק הפרויקט)</span></a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span></div>';});
+    packProjFiles(kind,e,s.k).forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><a href="#" onclick="openPDF(\''+ex(js1(f.path))+'\');return false" style="color:#3a6b10;font-weight:600;flex:1;text-decoration:none" title="'+ex(f.note||'מסמך מתיק הפרויקט — נספר אוטומטית')+'">📁 '+ex(f.name)+' <span style="color:#8ab86a;font-weight:400">(מתיק הפרויקט'+(f.note?' · מקוצץ':'')+')</span></a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span></div>';});
     (s.files||[]).forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-top:6px"><a href="#" onclick="openPDF(\''+ex(js1(f.path))+'\');return false" style="color:#1860a8;font-weight:600;flex:1;text-decoration:none">📄 '+ex(f.name)+'</a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span><button class="btn btn-sm btn-ghost btn-red" onclick="packDelFile(\''+kind+'\',\''+ex(js1(id))+'\','+ix+',\''+f.id+'\')">🗑</button></div>';});
     h+='</div>';
   });
@@ -1544,7 +1544,7 @@ function openPI(pid){
     PFCAT.forEach(function(cx){
       var fl=files.filter(function(f){return (f.cat||'אחר')===cx;});if(!fl.length)return;
       h+='<div style="font-size:11px;font-weight:700;color:#888;margin:8px 0 4px">'+ex(cx)+' ('+fl.length+')</div>';
-      fl.forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#faf8f5;border:1px solid #eee;border-radius:6px;margin-bottom:4px;font-size:12px"><a href="#" onclick="openPDF(\''+ex(f.path)+'\');return false" style="color:#1860a8;font-weight:600;flex:1;text-decoration:none">📄 '+ex(f.name)+'</a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span><button class="btn btn-sm btn-ghost btn-red" onclick="delProjFile(\''+pid+'\',\''+f.id+'\')">🗑</button></div>';});
+      fl.forEach(function(f){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#faf8f5;border:1px solid #eee;border-radius:6px;margin-bottom:4px;font-size:12px"><a href="#" onclick="openPDF(\''+ex(f.path)+'\');return false" style="color:#1860a8;font-weight:600;flex:1;text-decoration:none">📄 '+ex(f.name)+(f.note?'<span style="color:#8a8a8a;font-weight:400;font-size:11px"> — '+ex(f.note)+'</span>':'')+'</a><span style="color:#aaa;font-size:11px">'+fd(f.at)+'</span><button class="btn btn-sm btn-ghost btn-red" onclick="delProjFile(\''+pid+'\',\''+f.id+'\')">🗑</button></div>';});
     });
   }
   h+='</div>';
