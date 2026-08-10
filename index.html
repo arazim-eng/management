@@ -912,7 +912,7 @@ function openPack(kind,id){
   });
   h+='<div><button class="btn btn-sm btn-ghost" onclick="packAddSlot(\''+kind+'\',\''+ex(js1(id))+'\')">＋ מסמך נוסף לחבילה</button></div>';
   var pid=kind==='i'?e.project_id:e.id;
-  h+='<div class="mftr">'+(pid?'<button class="btn" onclick="closeM();openPI(\''+ex(js1(pid))+'\')">📁 תיק פרויקט</button>':'')+'<button class="btn btn-blue" id="pack-dl" onclick="packMerge(\''+kind+'\',\''+ex(js1(id))+'\')">🖨️ הורד חבילה מאוחדת (PDF)</button></div>';
+  h+='<div class="mftr">'+(pid?'<button class="btn" onclick="closeM();openPI(\''+ex(js1(pid))+'\')">📁 תיק פרויקט</button>':'')+'<button class="btn btn-amber" onclick="packShare(\''+kind+'\',\''+ex(js1(id))+'\')" title="קישור ציבורי בתוקף 30 יום — לשליחה לגורם בעירייה">🔗 קישור לגורם</button><button class="btn btn-blue" id="pack-dl" onclick="packMerge(\''+kind+'\',\''+ex(js1(id))+'\')">🖨️ הורד חבילה מאוחדת (PDF)</button></div>';
   showM(h);
 }
 function packRefresh(){if(D.view==='debts')document.getElementById('view').innerHTML=vDebts();}
@@ -944,6 +944,38 @@ function packDelFile(kind,id,ix,fid){
   if(f.path)afetch(SB_URL+'/storage/v1/object/invoices/'+f.path,{method:'DELETE'});
   s.files=s.files.filter(function(x){return x.id!==fid;});
   savePack(kind,id);openPack(kind,id);packRefresh();
+}
+/* ── שיתוף חבילה לגורם בעירייה: טוקן אקראי בטבלת pack_shares → דף ציבורי ב-edge fn pack-share ── */
+function packHasDocs(kind,id){
+  var e=packEnt(kind,id);if(!e)return false;
+  if(kind==='i'&&e.file_url)return true;
+  var pk=e.pack&&e.pack.slots?e.pack:null;if(!pk)return false;
+  for(var i=0;i<pk.slots.length;i++)if(pk.slots[i].files&&pk.slots[i].files.length)return true;
+  return false;
+}
+function packToken(){var a=new Uint8Array(20);crypto.getRandomValues(a);var s='';for(var i=0;i<a.length;i++)s+=('0'+a[i].toString(16)).slice(-2);return s;}
+function packShareUrl(t){return SB_URL+'/functions/v1/pack-share?t='+t;}
+/* create fresh 30-day share tokens for every debt row that has documents; resolves to {'<kind>:<id>':url} */
+function makePackShares(d,days){
+  var rows=[];
+  d.orders.forEach(function(r){if(packHasDocs('p',r.p.id))rows.push({kind:'p',id:r.p.id});});
+  d.invs.forEach(function(r){if(packHasDocs('i',r.i.id))rows.push({kind:'i',id:r.i.id});});
+  if(!rows.length)return Promise.resolve({});
+  var exp=new Date(Date.now()+(days||30)*864e5).toISOString();
+  var recs=rows.map(function(x){return{token:packToken(),kind:x.kind,ref_id:x.id,expires_at:exp};});
+  return sbUpsert('pack_shares',recs).then(function(){
+    var m={};recs.forEach(function(r){m[r.kind+':'+r.ref_id]=packShareUrl(r.token);});return m;
+  });
+}
+function packShare(kind,id){
+  var t=packToken();
+  sbUpsert('pack_shares',[{token:t,kind:kind,ref_id:id,expires_at:new Date(Date.now()+30*864e5).toISOString()}])
+  .then(function(){
+    var url=packShareUrl(t);
+    var done=function(){alert('🔗 הקישור הועתק — אפשר להדביק בוואטסאפ/מייל לגורם.\nבתוקף 30 יום, בלי צורך בסיסמה:\n\n'+url);};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(url).then(done,function(){prompt('העתק את הקישור (בתוקף 30 יום):',url);});
+    else prompt('העתק את הקישור (בתוקף 30 יום):',url);
+  });
 }
 /* sign a storage path → temporary URL (legacy full-http refs are returned as-is) */
 function signURL(ref){
@@ -1080,7 +1112,8 @@ function dbtDocHtml(d,o){
     h+='<h2>⚠️ פרויקטים הממתינים להזמנת עבודה ('+d.orders.length+')</h2>';
     h+='<table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>פרויקט</th><th>היקף (ללא מע"מ)</th><th>שכ"ט פיקוח (ללא מע"מ)</th><th>כולל מע"מ</th><th>סטטוס</th></tr></thead><tbody>';
     d.orders.forEach(function(r){
-      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.p.name)+'</strong>'+(r.p.project_number?'<div style="font-size:11px;color:#888">'+ex(r.p.project_number)+'</div>':'')+'</td><td>'+(r.scope?fc(r.scope):'—')+'</td><td class="num">'+fc(r.net)+'</td><td>'+fc(withVat(r.net))+'</td><td><span class="badge '+(r.p.status==='pending_order'?'badge-amber':'badge-red')+'">'+ex(r.st)+'</span></td></tr>';
+      var pl=o.packLinks&&o.packLinks['p:'+r.p.id];
+      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.p.name)+'</strong>'+(r.p.project_number?'<div style="font-size:11px;color:#888">'+ex(r.p.project_number)+'</div>':'')+(pl?'<div style="font-size:12px;margin-top:3px"><a href="'+ex(pl)+'" style="color:#1860a8;font-weight:700;text-decoration:none">📦 כל המסמכים להזמנה — לצפייה והדפסה</a></div>':'')+'</td><td>'+(r.scope?fc(r.scope):'—')+'</td><td class="num">'+fc(r.net)+'</td><td>'+fc(withVat(r.net))+'</td><td><span class="badge '+(r.p.status==='pending_order'?'badge-amber':'badge-red')+'">'+ex(r.st)+'</span></td></tr>';
     });
     h+='<tr class="total-row"><td colspan="4">סה"כ ('+d.orders.length+' פרויקטים)</td><td>'+fc(d.ordSum)+'</td><td>'+fc(withVat(d.ordSum))+'</td><td></td></tr></tbody></table>';
   }
@@ -1088,7 +1121,8 @@ function dbtDocHtml(d,o){
     h+='<h2>💰 חשבונות שהוגשו וטרם שולמו ('+d.invs.length+')</h2>';
     h+='<table><thead><tr><th>רשות</th><th>גורם מטפל</th><th>פרויקט</th><th>סוג מסמך</th><th>מס׳</th><th>הוגש</th><th>מועד פירעון</th><th>סכום</th></tr></thead><tbody>';
     d.invs.forEach(function(r){
-      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.proj)+'</strong></td><td>'+ex(r.i.invoice_type||'')+'</td><td>'+ex(r.i.invoice_number||'—')+'</td><td>'+fd(invBaseDate(r.i))+'</td><td>'+(r.due?fd(r.due):'—')+(r.late?' <span class="badge badge-late">באיחור '+r.days+' ימים</span>':'')+'</td><td class="num">'+fc(r.amt)+'</td></tr>';
+      var pl=o.packLinks&&o.packLinks['i:'+r.i.id];
+      h+='<tr><td>'+ex(r.client)+'</td><td>'+ex(r.handler)+'</td><td><strong>'+ex(r.proj)+'</strong>'+(pl?'<div style="font-size:12px;margin-top:3px"><a href="'+ex(pl)+'" style="color:#1860a8;font-weight:700;text-decoration:none">📦 חבילת המסמכים — לצפייה והדפסה</a></div>':'')+'</td><td>'+ex(r.i.invoice_type||'')+'</td><td>'+ex(r.i.invoice_number||'—')+'</td><td>'+fd(invBaseDate(r.i))+'</td><td>'+(r.due?fd(r.due):'—')+(r.late?' <span class="badge badge-late">באיחור '+r.days+' ימים</span>':'')+'</td><td class="num">'+fc(r.amt)+'</td></tr>';
     });
     h+='<tr class="total-row"><td colspan="7">סה"כ ('+d.invs.length+' חשבונות)</td><td>'+fc(d.invSum)+'</td></tr></tbody></table>';
   }
@@ -1180,13 +1214,15 @@ function dbtMailSelf(){
   var d=debtData();
   if(!d.orders.length&&!d.invs.length){alert('אין נתונים לשליחה');return;}
   if(!confirm('לשלוח את דוח החובות אליך בלבד (moshe@arazim-eng.co.il)?\nלא נשלח דבר לגורמים המטפלים.'))return;
-  dbtSend([{to:['moshe@arazim-eng.co.il'],subject:'דוח חובות — '+dbtScopeLabel()+' · '+fc(d.ordSum+d.invSum),
-    html:dbtDocHtml(d,{title:'דוח חובות — '+dbtScopeLabel(),scope:dbtScopeLabel(),greeting:'משה'})}]);
+  makePackShares(d,30).then(function(links){
+    dbtSend([{to:['moshe@arazim-eng.co.il'],subject:'דוח חובות — '+dbtScopeLabel()+' · '+fc(d.ordSum+d.invSum),
+      html:dbtDocHtml(d,{title:'דוח חובות — '+dbtScopeLabel(),scope:dbtScopeLabel(),greeting:'משה',packLinks:links})}]);
+  });
 }
 function dbtMailHandlers(){
   var selH=dbtSel('hns'),selC=dbtSel('cls');
   if(!selH.length){alert('בחר קודם גורם/ים מטפלים — כדי לא לשלוח בטעות לכולם');return;}
-  var msgs=[],missing=[],empty=[],lines=[];
+  var entries=[],missing=[],empty=[],lines=[];
   selH.forEach(function(k){
     if(k==='__none')return;
     var name=dbtHandlerName(k);
@@ -1195,16 +1231,22 @@ function dbtMailHandlers(){
     if(!addrs.length){missing.push(name);return;}
     var d=debtData({cls:selC,hns:[k]});
     if(!d.orders.length&&!d.invs.length){empty.push(name);return;}
-    msgs.push({to:addrs,subject:'ריכוז פרויקטים וחשבונות פתוחים — '+name+' · '+fc(d.ordSum+d.invSum),
-      html:dbtDocHtml(d,{title:'ריכוז פתוחים — '+name,greeting:name,forHandler:true})});
+    entries.push({name:name,addrs:addrs,d:d});
     lines.push('• '+name+' → '+addrs.join(' + ')+'  ('+d.orders.length+' ללא הזמנה, '+d.invs.length+' לא שולמו, '+fc(d.ordSum+d.invSum)+')');
   });
   var warn='';
   if(missing.length)warn+='\n⚠️ ללא מייל (לא יישלח): '+missing.join(', ');
   if(empty.length)warn+='\nℹ️ אין להם חובות פתוחים: '+empty.join(', ');
-  if(!msgs.length){alert('אין למי לשלוח.'+warn);return;}
-  if(!confirm('לשלוח '+msgs.length+' מיילים ישירות לגורמים בעירייה?\n\n'+lines.join('\n')+'\n\nהמייל יישלח מ-moshe@arazim-eng.co.il.'+warn))return;
-  dbtSend(msgs);
+  if(!entries.length){alert('אין למי לשלוח.'+warn);return;}
+  if(!confirm('לשלוח '+entries.length+' מיילים ישירות לגורמים בעירייה?\n\n'+lines.join('\n')+'\n\nכל שורה עם מסמכים תכלול קישור 📦 לחבילה (בתוקף 30 יום).\nהמייל יישלח מ-moshe@arazim-eng.co.il.'+warn))return;
+  var msgs=[],chain=Promise.resolve();
+  entries.forEach(function(en){
+    chain=chain.then(function(){return makePackShares(en.d,30);}).then(function(links){
+      msgs.push({to:en.addrs,subject:'ריכוז פרויקטים וחשבונות פתוחים — '+en.name+' · '+fc(en.d.ordSum+en.d.invSum),
+        html:dbtDocHtml(en.d,{title:'ריכוז פתוחים — '+en.name,greeting:en.name,forHandler:true,packLinks:links})});
+    });
+  });
+  chain.then(function(){dbtSend(msgs);});
 }
 /* ── MODAL UTILS ── */
 function showM(html){document.getElementById('modal').innerHTML=html;document.getElementById('mbg').classList.add('open');}
