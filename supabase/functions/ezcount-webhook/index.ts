@@ -11,6 +11,12 @@ const TYPE_MAP: Record<number, string> = {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  // אימות (16.8, ממצא Codex): בלי זה כל מי שמכיר את הכתובת יכול לזייף חשבונית,
+  // לדרוס מסמך קיים ואף למחוק שורה ידנית דרך מנגנון המיזוג. איזי קאונט לא שולח
+  // כותרות מותאמות — לכן המפתח עובר בכתובת (?key=), מוגדר כ-secret של הפונקציה.
+  const KEY = Deno.env.get("EZCOUNT_WEBHOOK_KEY") || "";
+  const given = new URL(req.url).searchParams.get("key") || req.headers.get("x-webhook-key") || "";
+  if (!KEY || given !== KEY) return json({ error: "unauthorized" }, 401);
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const p = await req.json().catch(() => ({}));
@@ -47,9 +53,35 @@ Deno.serve(async (req: Request) => {
       file_url: p.pdf_link || null,
       updated_at: new Date().toISOString(),
     };
+    // 10.8.26 — מניעת כפילויות: אותו מסמך נרשם לעיתים גם ידנית (סכום ללא מע"מ) לפני
+    // שה-webhook מגיע. אם קיימת שורה ידנית עם אותו מספר מסמך והסכום תואם (זהה או ×1.18),
+    // ממזגים: השורה כאן שומרת את ה-PDF, ויורשת מהידנית את השיוך לפרויקט, ההגשה לעירייה
+    // וסטטוס התשלום — והשורה הידנית נמחקת. שורות ezcount-/sumit- אחרות לעולם לא נוגעים בהן.
+    let merged: string | null = null;
+    const { data: sameNum } = await admin.from("invoices")
+      .select("id,amount,project_id,submitted_to_muni,muni_submit_date,status,date_paid,closes_id,exclude_cashflow")
+      .eq("invoice_number", row.invoice_number);
+    const manual = (sameNum ?? []).find((r) => {
+      if (r.id === row.id || r.id.startsWith("ezcount-") || r.id.startsWith("sumit-")) return false;
+      const a = Math.abs(Number(r.amount) || 0), b = Math.abs(row.amount) || 0;
+      if (!a || !b) return false;
+      return Math.abs(a - b) <= 2 || Math.abs(a * 1.18 - b) <= 2; // זהה, או ידני ללא מע"מ מול כולל מע"מ
+    });
+    if (manual) {
+      Object.assign(row, {
+        project_id: manual.project_id ?? null,
+        submitted_to_muni: manual.submitted_to_muni ?? false,
+        muni_submit_date: manual.muni_submit_date ?? null,
+        closes_id: manual.closes_id ?? null,
+        exclude_cashflow: manual.exclude_cashflow ?? false,
+        ...(manual.status === "paid" ? { status: "paid", date_paid: manual.date_paid ?? dateIso } : {}),
+      });
+      merged = manual.id;
+    }
     const { error } = await admin.from("invoices").upsert(row, { onConflict: "id" });
     if (error) return json({ ok: false, error: error.message });
-    return json({ ok: true, synced: row.invoice_number, amount: row.amount });
+    if (merged) await admin.from("invoices").delete().eq("id", merged);
+    return json({ ok: true, synced: row.invoice_number, amount: row.amount, merged });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
