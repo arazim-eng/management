@@ -7,6 +7,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //   נגישות   = לאה סנדרס + הדסה → one email to both, always
 //   מוחמד / שמואל לשם / everyone else → individual email
 // Recipients come from the `handlers` table (email + send_weekly) — no email ⇒ nothing is sent.
+//
+// ⚠️ כלל פרטיות (משה, 2.9.26) — אסור לשבור:
+//   מייל לגורם בעירייה = אך ורק הפרויקטים שלו שטרם יצאה להם הזמנת עבודה.
+//   כל מה שקשור לכסף שכבר הוגש — חשבוניות פתוחות, הנהלת חשבונות, ממתין לתשלום —
+//   נכנס אך ורק ל-sumHtml שנשלח ל-SUMMARY_TO (משה + יפעה) ולעולם לא ל-buildHandlerEmail.
+//   buildHandlerEmail מקבל projects בלבד, לא invoices — אל תעביר לו חשבוניות.
 // ?test=1 ⇒ every email is delivered to MOSHE only (subject marked), nothing reaches the handlers.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -29,12 +35,32 @@ const CLIENT_NAMES: Record<string, string> = {
 const GROUPS: { title: string; members: string[] }[] = [
   // "תהילה + קובי" (פלך) belongs to BOTH בדק בית and תכנון — appears in both emails (Moshe 21.7)
   { title: "בדק בית", members: ["קובי שמואלי", "שלומי שוקרון", "תהילה + קובי"] },
-  { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי", "תהילה + קובי"] },
+  { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי", "שלומי שוקרון", "תהילה + קובי"] },
   { title: "נגישות", members: ["לאה סנדרס", "הדסה", "שגיא עוזרי"] },
 ];
 
 // גורמים שמקבלים את כל פרויקטי ירושלים ללא הזמנה — לא רק את אלה שהם מטפלים בהם (משה, 2.9.26)
 const ALL_JLM: string[] = ["יפעת"];
+
+// "הוגש וטרם שולם" — אותו כלל בדיוק כמו inCashflow באפליקציה:
+// חשבונית מס פתוחה תמיד נספרת; חשבון עסקה רק אם יש הזמנה ואף חשבונית מס לא סגרה אותו.
+function openInvoices(invoices: any[], projects: any[]) {
+  const projById: Record<string, any> = {};
+  projects.forEach((p) => { projById[p.id] = p; });
+  const closed = new Set(invoices.map((i) => i.closes_id).filter(Boolean));
+  return invoices.filter((i) => {
+    if (i.exclude_cashflow) return false;
+    if (i.status !== "sent" && i.status !== "accounting") return false;
+    if (!Number(i.amount)) return false;
+    if (i.invoice_type === "חשבונית מס") return true;
+    if (i.invoice_type === "חשבון עסקה") {
+      if (closed.has(i.id)) return false;
+      const p = projById[i.project_id];
+      return !!(p && String(p.work_order_number || "").trim());
+    }
+    return false;
+  });
+}
 
 function fc(n: any): string {
   if (!n && n !== 0) return "—";
@@ -79,11 +105,12 @@ async function sendEmail(token: string, to: string, cc: string | null, subject: 
 
 async function getData() {
   const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` };
-  const [projRes, handRes] = await Promise.all([
+  const [projRes, handRes, invRes] = await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/projects?select=*`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/handlers?select=*`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/invoices?select=*`, { headers }),
   ]);
-  return { projects: await projRes.json(), handlers: await handRes.json() };
+  return { projects: await projRes.json(), handlers: await handRes.json(), invoices: await invRes.json() };
 }
 
 function buildHandlerEmail(greeting: string, projs: any[], showHandler: boolean): string {
@@ -153,7 +180,7 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const isTest = url.searchParams.get("test") === "1";
 
-    const { projects, handlers } = await getData();
+    const { projects, handlers, invoices } = await getData();
 
     // group open no-order projects by normalized handler name
     const byHandler: Record<string, { name: string; projs: any[] }> = {};
@@ -250,6 +277,22 @@ Deno.serve(async (req) => {
         const net = Number(p.supervision_amount) || 0;
         allRows += `<tr><td><strong>${p.name}</strong></td><td>${norm(p.contact_name) || "—"}</td><td>${CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—"}</td><td>${fc(net)}</td><td>${fc(Math.round(net * (1 + VAT)))}</td></tr>`;
       });
+      // חצי שני של הסיכום ליפעה: מה שכבר הוגש וטרם שולם
+      const projById: Record<string, any> = {};
+      projects.forEach((p: any) => { projById[p.id] = p; });
+      const openInv = openInvoices(invoices || [], projects)
+        .sort((a: any, b: any) => Number(b.amount) - Number(a.amount));
+      const openTotal = openInv.reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+      let invRows = "";
+      openInv.forEach((i: any) => {
+        const p = projById[i.project_id];
+        const cl = p ? (CLIENT_NAMES[p.client_id] || p.custom_client || p.client_id || "—") : "—";
+        invRows += `<tr><td><strong>${i.invoice_number || "—"}</strong><div style="font-size:11px;color:#888">${i.invoice_type || ""}</div></td>` +
+          `<td>${p ? p.name : "<span style=\"color:#a4342a\">⚠️ ללא שיוך</span>"}</td>` +
+          `<td>${p ? (norm(p.contact_name) || "—") : "—"}</td><td>${cl}</td>` +
+          `<td>${i.date_sent || "—"}</td><td><strong>${fc(Number(i.amount))}</strong></td></tr>`;
+      });
+      const grand = uniqTotal + openTotal;
       const dateStr = new Date().toLocaleDateString("he-IL", { year: "numeric", month: "long", day: "numeric" });
       const sumHtml = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><style>
         body{font-family:Arial,sans-serif;direction:rtl;background:#f0eeea;margin:0;padding:20px}
@@ -264,7 +307,7 @@ Deno.serve(async (req) => {
         .total-row td{background:#e0f4ed;font-weight:700;border-top:2px solid #9fe0cb;color:#074f3c}
         .footer{text-align:center;font-size:11px;color:#aaa;margin-top:16px}
       </style></head><body><div class="wrap">
-        <div class="header"><h1>📊 סיכום — מיילי הזמנות עבודה שנשלחו</h1><p>מ.ס ארזים הנדסה · ${dateStr}</p></div>
+        <div class="header"><h1>📊 סיכום שבועי — כל החוב הפתוח לארזים</h1><p>מ.ס ארזים הנדסה · ${dateStr}</p></div>
         <div class="body">
           <h2>מי קיבל מה</h2>
           <table><thead><tr><th>מחלקה / גורם</th><th>נמענים</th><th>פרויקטים</th><th>שכ"ט ללא מע"מ</th><th>כולל מע"מ</th></tr></thead>
@@ -273,10 +316,20 @@ Deno.serve(async (req) => {
           <h2>כל הפרויקטים הממתינים להזמנה</h2>
           <table><thead><tr><th>פרויקט</th><th>גורם מטפל</th><th>רשות</th><th>שכ"ט ללא מע"מ</th><th>כולל מע"מ</th></tr></thead>
           <tbody>${allRows}</tbody></table>
+          <h2>הוגש וטרם שולם — ${openInv.length} מסמכים</h2>
+          <table><thead><tr><th>מסמך</th><th>פרויקט</th><th>גורם מטפל</th><th>רשות</th><th>נשלח</th><th>סכום</th></tr></thead>
+          <tbody>${invRows}
+          <tr class="total-row"><td colspan="5">סה"כ הוגש וטרם שולם</td><td>${fc(openTotal)}</td></tr></tbody></table>
+          <h2>סך כל החוב לארזים</h2>
+          <table><tbody>
+            <tr><td>ממתין להזמנת עבודה (${uniqProjs.length} פרויקטים)</td><td style="text-align:left"><strong>${fc(uniqTotal)}</strong></td></tr>
+            <tr><td>הוגש וטרם שולם (${openInv.length} מסמכים)</td><td style="text-align:left"><strong>${fc(openTotal)}</strong></td></tr>
+            <tr class="total-row"><td>סך הכל</td><td style="text-align:left">${fc(grand)}</td></tr>
+          </tbody></table>
         </div>
         <div class="footer">נשלח אוטומטית ממערכת ניהול הפיקוח של ארזים הנדסה</div>
       </div></body></html>`;
-      const sumSubject = (isTest ? "[בדיקה] " : "") + `סיכום מיילי הזמנות עבודה — ${sentDetails.length} מיילים · ${fc(uniqTotal)} ממתין להזמנה`;
+      const sumSubject = (isTest ? "[בדיקה] " : "") + `סיכום שבועי — ${fc(grand)} חוב פתוח לארזים (${fc(uniqTotal)} ללא הזמנה + ${fc(openTotal)} הוגש וטרם שולם)`;
       const sumTo = isTest ? [MOSHE] : SUMMARY_TO;
       for (const addr of sumTo) await sendEmail(token!, addr, null, sumSubject, sumHtml);
       results.push({ summary: true, to: sumTo, total: uniqTotal, status: "sent" });
