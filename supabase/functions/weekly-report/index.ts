@@ -264,6 +264,7 @@ function buildReport(projects: any[], invoices: any[]): string {
     const statusLabels: Record<string, string> = {
       no_order: "ללא הזמנה",
       pending_order: "ממתין להזמנה",
+      order_issued: "יצאה הזמנה",
       offer_sent: "נשלח חשבון עסקה",
       accounting: "בהנה\"ח",
       paid: "שולם",

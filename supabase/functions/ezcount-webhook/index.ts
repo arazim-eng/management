@@ -12,8 +12,12 @@ const TYPE_MAP: Record<number, string> = {
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   // אימות (16.8, ממצא Codex): בלי זה כל מי שמכיר את הכתובת יכול לזייף חשבונית,
-  // לדרוס מסמך קיים ואף למחוק שורה ידנית דרך מנגנון המיזוג. איזי קאונט לא שולח
-  // כותרות מותאמות — לכן המפתח עובר בכתובת (?key=), מוגדר כ-secret של הפונקציה.
+  // לדרוס מסמך קיים ואף למחוק שורה ידנית דרך מנגנון המיזוג. המפתח מוגדר כ-secret
+  // של הפונקציה, ומתקבל משני מסלולים. איזי קאונט מוגדרים כיום עם ?key= בכתובת,
+  // אך הם כן תומכים בכותרות מותאמות ("+ מתקדם (request header)" במסך ההגדרות) —
+  // מעבר ל-x-webhook-key עדיף, כי הכתובת נכתבת ללוגים והמפתח איתה.
+  // ⚠️ שינוי המפתח כאן מחייב עדכון מקביל במסך ההגדרות של איזי קאונט, אחרת כל
+  // מסמך נדחה ב-401 בשקט; אחרי 5 דחיות איזי קאונט מנתקים את ה-webhook לגמרי.
   const KEY = Deno.env.get("EZCOUNT_WEBHOOK_KEY") || "";
   const given = new URL(req.url).searchParams.get("key") || req.headers.get("x-webhook-key") || "";
   if (!KEY || given !== KEY) return json({ error: "unauthorized" }, 401);

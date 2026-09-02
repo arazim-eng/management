@@ -30,8 +30,11 @@ const GROUPS: { title: string; members: string[] }[] = [
   // "תהילה + קובי" (פלך) belongs to BOTH בדק בית and תכנון — appears in both emails (Moshe 21.7)
   { title: "בדק בית", members: ["קובי שמואלי", "שלומי שוקרון", "תהילה + קובי"] },
   { title: "תכנון", members: ["תהילה ארז", "סנדרה", "תהילה חפצדי", "תהילה + קובי"] },
-  { title: "נגישות", members: ["לאה סנדרס", "הדסה"] },
+  { title: "נגישות", members: ["לאה סנדרס", "הדסה", "שגיא עוזרי"] },
 ];
+
+// גורמים שמקבלים את כל פרויקטי ירושלים ללא הזמנה — לא רק את אלה שהם מטפלים בהם (משה, 2.9.26)
+const ALL_JLM: string[] = ["יפעת"];
 
 function fc(n: any): string {
   if (!n && n !== 0) return "—";
@@ -206,6 +209,18 @@ Deno.serve(async (req) => {
         return byHandler[mk] || (emailByName[mk] && emailByName[mk].email);
       });
       await deliver(`מחלקת ${g.title}`, names.join(" ו"), [...new Set(toList)], projs, true);
+    }
+
+    // 1.5) גורמים שמקבלים את כל ירושלים (יפעת) — לפני הבודדים, כדי שלא יקבלו גם מייל אישי
+    for (const nm of ALL_JLM) {
+      const k = norm(nm).toLowerCase();
+      grouped.add(k);
+      const rec = emailByName[k];
+      if (!rec || !rec.email || !rec.send) { skipped++; results.push({ handler: nm, status: "no-email" }); continue; }
+      const projs = projects.filter((p: any) =>
+        (p.status === "no_order" || p.status === "pending_order") && p.client_id === "jlm");
+      if (!projs.length) continue;
+      await deliver(`${nm} — כל ירושלים`, nm, emails(rec.email), projs, true);
     }
 
     // 2) individual handlers (מוחמד, שמואל לשם and anyone else not in a group)
