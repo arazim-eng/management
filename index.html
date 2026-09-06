@@ -98,6 +98,8 @@ tfoot td{padding:8px 12px;font-size:13px;font-weight:700;background:#faf8f5;bord
 .stg{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .sto{padding:9px 12px;border-radius:7px;border:2px solid transparent;cursor:pointer;font-size:13px;font-weight:600}
 .sto:hover{opacity:.85}
+.dept-cell{font-size:11px;color:#888;padding-right:13px;cursor:pointer;border-radius:4px;display:inline-block;padding-left:4px}
+.dept-cell:hover{color:#1860a8;background:#eef4fb}
 .sto.sel{border-color:currentColor!important}
 .ecard{background:#fff;border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin-bottom:9px}
 .eav{width:38px;height:38px;border-radius:50%;background:#e8f1fb;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#1860a8;flex-shrink:0}
@@ -535,7 +537,7 @@ function vProj(){
     }
     finHtml+='</div>';
     h+='<td style="white-space:nowrap"><span style="font-size:12px;color:#1860a8;font-weight:700;letter-spacing:.02em">'+(p.project_number?ex(p.project_number):'<span style="color:#ccc">—</span>')+'</span></td>';
-    h+='<td><div style="display:flex;align-items:center;gap:5px;font-weight:600"><span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(cliName(p))+'</div><div style="font-size:11px;color:#888;padding-right:13px">'+ex(d.name||'')+'</div></td>';
+    h+='<td><div style="display:flex;align-items:center;gap:5px;font-weight:600"><span class="dot" style="background:'+(c.col||'#888')+'"></span>'+ex(cliName(p))+'</div><div class="dept-cell" title="לחץ להעברה למחלקה אחרת" onclick="event.stopPropagation();openDept(\''+p.id+'\')">'+(d.name?ex(d.name):'<span style="color:#c00">— ללא מחלקה —</span>')+' ✎</div></td>';
     h+='<td><div style="font-weight:600">'+ex(p.name)+'</div>'+(p.contact_name?'<div style="font-size:11px;color:#888">'+ex(p.contact_name)+'</div>':'')+'</td>';
     h+='<td>'+(p.work_order_number?'<span class="wo-ok">'+ex(p.work_order_number)+'</span>':'<span class="wo-no">—</span>')+'</td>';
     h+='<td><span class="badge '+(p.entity==='חברה'?'b-chev':'b-osek')+'">'+ex(p.entity||'עוסק')+'</span></td>';
@@ -1403,6 +1405,15 @@ function delP(pid,fromM){var p=null;for(var i=0;i<D.projects.length;i++)if(D.pro
 /* ── STATUS MODAL ── */
 function openSt(pid){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p)return;var h='<div class="mhdr"><span class="mtitle">סטטוס — '+ex(p.name)+'</span><button class="mx" onclick="closeM()">✕</button></div><div class="stg">';for(var k in STS){var s=STS[k];h+='<div class="sto'+(p.status===k?' sel':'')+'" style="color:'+s.c+';background:'+s.bg+';" onclick="setSt(\''+pid+'\',\''+k+'\')">'+s.l+'</div>';}h+='</div><div style="padding-top:11px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span style="font-size:12px;color:#888">נוכחי: <strong>'+gs(p.status).l+'</strong></span><button class="btn" onclick="closeM()">סגור</button></div>';showM(h);}
 function setSt(pid,ns){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i].status=ns;D.projects[i].updated_at=new Date().toISOString();break;}svP();var _stP=D.projects.filter(function(x){return x.id===pid;})[0];if(_stP)cloudSave('projects',_stP);closeM();go(D.view);}
+function openDept(pid){var p=null;for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){p=D.projects[i];break;}if(!p)return;
+  var a=DP[p.client_id]||[],cur=deptNameOf(p),oth=isOtherDept(p.department_id);
+  var h='<div class="mhdr"><span class="mtitle">מחלקה — '+ex(p.name)+'</span><button class="mx" onclick="closeM()">✕</button></div><div style="font-size:12px;color:#888;margin-bottom:9px">'+ex(cliName(p))+' · נוכחי: <strong style="color:#222">'+ex(cur||'ללא מחלקה')+'</strong></div><div class="stg">';
+  for(var i=0;i<a.length;i++){if(a[i].id==='other')continue;var sel=(!oth&&p.department_id===a[i].id);h+='<div class="sto'+(sel?' sel':'')+'" style="color:#1860a8;background:#eef4fb" onclick="setDept(\''+pid+'\',\''+a[i].id+'\')">'+ex(a[i].name)+'</div>';}
+  h+='</div><div style="padding-top:11px;margin-top:10px;border-top:1px solid #eee"><label class="flbl" style="color:#8a6d3b">מחלקה אחרת (טקסט חופשי)</label><div style="display:flex;gap:6px;margin-top:4px"><input class="fi" id="dm-o" placeholder="הקלד שם מחלקה" style="flex:1" value="'+ex(oth?otherDeptName(p.department_id):'')+'"><button class="btn btn-blue" onclick="setDeptOther(\''+pid+'\')">שמור</button></div></div>';
+  h+='<div class="mftr"><span style="font-size:12px;color:#888;margin-left:auto">להעברה ל<strong>רשות</strong> אחרת — ✏️ בעריכת הפרויקט</span><button class="btn" onclick="closeM()">סגור</button></div>';
+  showM(h);}
+function setDept(pid,did){for(var i=0;i<D.projects.length;i++)if(D.projects[i].id===pid){D.projects[i].department_id=did;D.projects[i].updated_at=new Date().toISOString();break;}svP();var _p=D.projects.filter(function(x){return x.id===pid;})[0];if(_p)cloudSave('projects',_p);closeM();go(D.view);}
+function setDeptOther(pid){var v=(document.getElementById('dm-o')||{value:''}).value.trim();if(!v){alert('הקלד שם מחלקה');return;}setDept(pid,'other:'+v);}
 /* ── INVOICE MODAL ── */
 function onInvTypeChange(){
   var tp=document.getElementById('i-tp').value;
