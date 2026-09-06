@@ -213,7 +213,7 @@ function backfillProjNumbers(){
   svP();updated.forEach(function(p){cloudSave('projects',p);});go(D.view);
   alert('הוקצו מספרים ל-'+updated.length+' פרויקטים.');
 }
-var D={view:'dashboard',projects:[],invoices:[],employees:[],handlers:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:''},dbt:{cls:{},hns:{},noOrd:true,unpaid:true}};
+var D={view:'dashboard',projects:[],invoices:[],employees:[],handlers:[],f:{cl:'',st:'',en:'',yr:'',q:'',hn:'',dp:''},dbt:{cls:{},hns:{},noOrd:true,unpaid:true}};
 var SB_URL='https://kwmldvcsucbuvsjsiuaq.supabase.co';
 var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3bWxkdmNzdWNidXZzanNpdWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1OTE3ODYsImV4cCI6MjA5NDE2Nzc4Nn0.5_gKgNR6PCz3iWV0aMSWWoIpCPagKBO4LM7KwQuIFr8';
 /* ── AUTH: RLS allows authenticated users only; the anon key is just the apikey ── */
@@ -382,6 +382,8 @@ function cliName(p){if(!p)return'';var c=gc(p.client_id);if(p.client_id==='other
 function isOtherDept(did){return String(did||'').indexOf('other')===0;}
 function otherDeptName(did){return String(did||'').slice(6);}
 function gd(cid,did){if(isOtherDept(did))return{id:'other',name:otherDeptName(did)||'אחר'};var a=DP[cid]||[];for(var i=0;i<a.length;i++)if(a[i].id===did)return a[i];return{};}
+function deptNameOf(p){return String((gd(p&&p.client_id,p&&p.department_id)||{}).name||'').trim();}
+function deptMatch(p,f){if(!f)return true;return deptNameOf(p)===f;}
 function gs(s){return STS[s]||STS.no_order;}
 function gi(s){return IST[s]||IST.draft;}
 function pInvs(pid){return D.invoices.filter(function(i){return i.project_id===pid;});}
@@ -494,7 +496,19 @@ function vDash(){
   h+='</div></div>';return h;
 }
 /* ── PROJECTS ── */
-function getFilteredProjects(){var yr=D.f.yr;return D.projects.filter(function(p){if(D.f.cl&&p.client_id!==D.f.cl)return false;if(D.f.st&&p.status!==D.f.st)return false;if(D.f.en&&p.entity!==D.f.en)return false;if(yr&&p.created_at&&new Date(p.created_at).getFullYear()!==parseInt(yr))return false;if(D.f.q){var q=D.f.q.toLowerCase();if((p.name||'').toLowerCase().indexOf(q)<0&&(p.contact_name||'').toLowerCase().indexOf(q)<0&&(p.work_order_number||'').toLowerCase().indexOf(q)<0)return false;}return true;});}
+function getFilteredProjects(){var yr=D.f.yr;return D.projects.filter(function(p){if(D.f.cl&&p.client_id!==D.f.cl)return false;if(D.f.dp&&!deptMatch(p,D.f.dp))return false;if(D.f.st&&p.status!==D.f.st)return false;if(D.f.en&&p.entity!==D.f.en)return false;if(yr&&p.created_at&&new Date(p.created_at).getFullYear()!==parseInt(yr))return false;if(D.f.q){var q=D.f.q.toLowerCase();if((p.name||'').toLowerCase().indexOf(q)<0&&(p.contact_name||'').toLowerCase().indexOf(q)<0&&(p.work_order_number||'').toLowerCase().indexOf(q)<0&&deptNameOf(p).toLowerCase().indexOf(q)<0&&(p.project_number||'').toLowerCase().indexOf(q)<0)return false;}return true;});}
+function deptOpts(){
+  var m={},order=[];
+  for(var i=0;i<D.projects.length;i++){var p=D.projects[i];
+    if(D.f.cl&&p.client_id!==D.f.cl)continue;
+    var n=deptNameOf(p);if(!n)continue;
+    if(m[n]===undefined){m[n]=0;order.push(n);}
+    m[n]++;}
+  if(D.f.dp&&m[D.f.dp]===undefined){m[D.f.dp]=0;order.push(D.f.dp);}
+  order.sort(function(a,b){return a.localeCompare(b,'he');});
+  var r='<option value="">כל המחלקות</option>';
+  for(var i=0;i<order.length;i++)r+='<option value="'+ex(order[i])+'"'+(D.f.dp===order[i]?' selected':'')+'>'+ex(order[i])+' ('+m[order[i]]+')</option>';
+  return r;}
 function vProj(){
   var ps=getFilteredProjects();
   var clO='<option value="">כל הלקוחות</option>';for(var i=0;i<CL.length;i++)clO+='<option value="'+CL[i].id+'"'+(D.f.cl===CL[i].id?' selected':'')+'>'+ex(CL[i].name)+'</option>';
@@ -502,7 +516,7 @@ function vProj(){
   var yrs=getYears();var curYr=String(new Date().getFullYear());if(yrs.indexOf(curYr)<0)yrs.unshift(curYr);
   var yrO='<option value="">כל השנים</option>';for(var i=0;i<yrs.length;i++)yrO+='<option value="'+yrs[i]+'"'+(D.f.yr===yrs[i]?' selected':'')+'>'+yrs[i]+'</option>';
   var totSup=0,totSub=0;ps.forEach(function(p){if(p.project_type!=='contract')totSup+=Number(p.supervision_amount)||0;var f=projFin(p.id,p);totSub+=f.sub;});
-  var h='<div class="fbar"><select onchange="sf(\'cl\',this.value)">'+clO+'</select><select onchange="sf(\'st\',this.value)">'+stO+'</select><select onchange="sf(\'en\',this.value)"><option value="">עוסק+חברה</option><option value="עוסק"'+(D.f.en==='עוסק'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(D.f.en==='חברה'?' selected':'')+'>חברה בע"מ</option></select><select onchange="sf(\'yr\',this.value)">'+yrO+'</select><input type="text" placeholder="שם / הזמנה / איש קשר" value="'+ex(D.f.q)+'" oninput="sf(\'q\',this.value)"><span style="font-size:12px;color:#888;margin-right:auto">'+ps.length+' | פיקוח (ללא מע"מ): '+fc(totSup)+' | חשב\' מס: '+fc(totSub)+'</span>'+(D.projects.some(function(p){return !p.project_number;})?'<button class="btn btn-sm btn-amber" onclick="backfillProjNumbers()" title="הקצה מספר לפרויקטים קיימים">#️⃣ מספֵּר</button>':'')+(D.f.cl||D.f.st||D.f.en||D.f.yr||D.f.q?'<button class="btn btn-sm" onclick="cf()">✕</button>':'')+'</div>';
+  var h='<div class="fbar"><select onchange="sf(\'cl\',this.value)">'+clO+'</select><select onchange="sf(\'dp\',this.value)" title="סינון לפי מחלקה">'+deptOpts()+'</select><select onchange="sf(\'st\',this.value)">'+stO+'</select><select onchange="sf(\'en\',this.value)"><option value="">עוסק+חברה</option><option value="עוסק"'+(D.f.en==='עוסק'?' selected':'')+'>עוסק מורשה</option><option value="חברה"'+(D.f.en==='חברה'?' selected':'')+'>חברה בע"מ</option></select><select onchange="sf(\'yr\',this.value)">'+yrO+'</select><input type="text" placeholder="שם / מספר / מחלקה / הזמנה / איש קשר" value="'+ex(D.f.q)+'" oninput="sf(\'q\',this.value)"><span style="font-size:12px;color:#888;margin-right:auto">'+ps.length+' | פיקוח (ללא מע"מ): '+fc(totSup)+' | חשב\' מס: '+fc(totSub)+'</span>'+(D.projects.some(function(p){return !p.project_number;})?'<button class="btn btn-sm btn-amber" onclick="backfillProjNumbers()" title="הקצה מספר לפרויקטים קיימים">#️⃣ מספֵּר</button>':'')+(D.f.cl||D.f.dp||D.f.st||D.f.en||D.f.yr||D.f.q?'<button class="btn btn-sm" onclick="cf()">✕</button>':'')+'</div>';
   h+='<div class="tbl-box"><table><thead><tr><th>מספר</th><th>לקוח / מחלקה</th><th>פרויקט</th><th>הזמנה</th><th>ישות</th><th>סכום / תעריף</th><th>מצב כספי</th><th>סטטוס</th><th></th></tr></thead><tbody>';
   if(!ps.length)h+='<tr><td colspan="9" class="empty">אין פרויקטים. לחץ "+ פרויקט חדש".</td></tr>';
   else for(var pi=0;pi<ps.length;pi++){
@@ -531,8 +545,8 @@ function vProj(){
   }
   h+='</tbody>'+(ps.length?'<tfoot><tr><td colspan="5">סה"כ '+ps.length+'</td><td style="color:#1860a8">'+fc(totSup)+'</td><td style="color:#834e0a;font-size:12px">חשב\' מס: '+fc(totSub)+'</td><td colspan="2"></td></tr></tfoot>':'')+'</table></div>';return h;
 }
-function sf(k,v){D.f[k]=v;document.getElementById('view').innerHTML=vProj();bdg();}
-function cf(){D.f={cl:'',st:'',en:'',yr:'',q:''};go('projects');}
+function sf(k,v){D.f[k]=v;if(k==='cl'&&D.f.dp){var ok=false;for(var i=0;i<D.projects.length;i++){var p=D.projects[i];if((!v||p.client_id===v)&&deptNameOf(p)===D.f.dp){ok=true;break;}}if(!ok)D.f.dp='';}document.getElementById('view').innerHTML=vProj();bdg();}
+function cf(){D.f={cl:'',st:'',en:'',yr:'',q:'',hn:'',dp:''};go('projects');}
 /* ── INVOICES ── */
 function vInv(){
   var yr=D.f.yr;
