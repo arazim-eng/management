@@ -26,3 +26,9 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/debt-mail/deno.json"
 entrypoint = "./functions/debt-mail/index.ts"
+
+[functions.invoices-sync]
+enabled = true
+verify_jwt = true
+import_map = "./functions/invoices-sync/deno.json"
+entrypoint = "./functions/invoices-sync/index.ts"
