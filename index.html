@@ -392,12 +392,19 @@ function pInvs(pid){return D.invoices.filter(function(i){return i.project_id===p
 /* CASHFLOW SET: what money is genuinely expected.
    certain = חשבונית מס (sent/accounting).  expected = חשבון עסקה on a project WITH work order, not yet closed by a tax invoice.
    excluded = עסקה ללא הזמנה (speculative), הצעת מחיר/קבלה, and anything flagged exclude_cashflow. */
-function invCertain(i){return i.invoice_type==='חשבונית מס';}
+/* כלל הכסף (22.9.26, משה): מסמכי מס = חשבונית מס **וגם** חשבונית מס קבלה
+   (תשלום במקום — הכסף התקבל והמסמך הוא חשבונית לכל דבר), וזיכוי מקזז (סכום שלילי).
+   עד היום נספרה רק 'חשבונית מס', ומאז שמערכת החשבוניות היא המפיקה היחידה
+   מס/קבלה נכנסת לטבלה — בלי התיקון היא לא נספרה בהכנסות ובפרויקטים. */
+var TAX_TYPES=['חשבונית מס','חשבונית מס קבלה'];
+var CREDIT_TYPE='חשבונית זיכוי';
+function isTaxDoc(i){return TAX_TYPES.indexOf(i.invoice_type)>-1;}
+function invCertain(i){return isTaxDoc(i);}
 function inCashflow(i){
   if(i.exclude_cashflow)return false;
   if(!(i.status==='sent'||i.status==='accounting'))return false;
   if(!Number(i.amount))return false;
-  if(i.invoice_type==='חשבונית מס')return true;
+  if(isTaxDoc(i))return true;   /* מס/קבלה כבר משולמת ⇒ ממילא לא בסטטוס sent */
   if(i.invoice_type==='חשבון עסקה'){if(chainCloser(i.id))return false;return hasWO(projById(i.project_id));}
   return false;
 }
@@ -417,9 +424,11 @@ function getOpenTA(pid,excludeId){var closed={};D.invoices.filter(function(i){re
 /* MONEY RULE: only חשבונית מס counts as real revenue. חשבון עסקה is a request, tracked separately. */
 function projFin(pid,p){
   var invs=pInvs(pid);
-  var tax=invs.filter(function(i){return i.invoice_type==='חשבונית מס';});
-  var sub=asum(tax,'amount');
-  var paid=asum(tax.filter(function(i){return i.status==='paid';}),'amount');
+  var tax=invs.filter(function(i){return isTaxDoc(i);});
+  /* זיכוי (סכום שלילי) מקזז מההכנסה ומהתקבולים */
+  var credits=invs.filter(function(i){return i.invoice_type===CREDIT_TYPE;});
+  var sub=asum(tax,'amount')+asum(credits,'amount');
+  var paid=asum(tax.filter(function(i){return i.status==='paid';}),'amount')+asum(credits,'amount');
   var pend=asum(tax.filter(function(i){return i.status==='sent'||i.status==='accounting';}),'amount');
   /* open חשבונות עסקה = not yet closed by a tax invoice */
   var openPf=invs.filter(function(i){return i.invoice_type==='חשבון עסקה'&&!chainCloser(i.id);});
