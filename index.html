@@ -193,7 +193,8 @@ var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l
 var IT=['חשבון עסקה','חשבונית מס','קבלה']; /* 21.7: הצעת מחיר הוסרה — משה לא רוצה אותן בטבלה */
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},cancelled:{l:'מבוטל',c:'#b02',bg:'#fce9e9'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-var PFCAT=['הזמנת עבודה','חשבון מאושר','הצעת מחיר','כתב כמויות','חשבונית קבלן','אחר'];
+/* 23.9.26 משה: "איפה שכתוב אחר שיהיה כתוב גם חשבונות ספקים ויהיה אפשר להכניס לשם מה שרוצים" — קטגוריה חופשית בתיק, עם תיאור */
+var PFCAT=['הזמנת עבודה','חשבון מאושר','הצעת מחיר','כתב כמויות','חשבונית קבלן','חשבונות ספקים','אחר'];
 /* client numbering codes — position in CL determines 2-digit code (01..) */
 function clientCode(cid){for(var i=0;i<CL.length;i++)if(CL[i].id===cid)return ('0'+(i+1)).slice(-2);return '00';}
 function projById(pid){for(var j=0;j<D.projects.length;j++)if(D.projects[j].id===pid)return D.projects[j];return null;}
@@ -339,7 +340,7 @@ function handlePDFUpload(invId,input){
   });
 }
 /* ── PROJECT FOLDER FILES (stored in `invoices` bucket under proj/<pid>/, metadata in projects.files jsonb) ── */
-function uploadProjFile(pid,cat,file,onDone){
+function uploadProjFile(pid,cat,file,onDone,note){
   var ext=(file.name.split('.').pop()||'bin').toLowerCase();
   var fid=uid();var path='proj/'+pid+'/'+fid+'.'+ext;
   var reader=new FileReader();
@@ -349,7 +350,7 @@ function uploadProjFile(pid,cat,file,onDone){
       if(r.ok){
         var p=projById(pid);if(!p){alert('פרויקט לא נמצא');return;}
         if(!p.files)p.files=[];
-        p.files.push({id:fid,cat:cat,name:file.name,path:path,at:new Date().toISOString()});
+        p.files.push({id:fid,cat:cat,name:file.name,path:path,at:new Date().toISOString(),note:note||undefined});
         svP();
         afetch(SB_URL+'/rest/v1/projects?id=eq.'+pid,{method:'PATCH',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({files:p.files})}).then(function(){showSync(true);});
         if(onDone)onDone();
@@ -361,8 +362,9 @@ function uploadProjFile(pid,cat,file,onDone){
 function handleProjFileUpload(pid,input){
   var file=input.files[0];if(!file)return;
   var cat=(document.getElementById('pf-cat')||{value:'אחר'}).value;
+  var note=(document.getElementById('pf-note')||{value:''}).value.trim();
   var lbl=document.getElementById('pf-status');if(lbl)lbl.textContent='מעלה '+file.name+'...';
-  uploadProjFile(pid,cat,file,function(){openPI(pid);});
+  uploadProjFile(pid,cat,file,function(){openPI(pid);},note);
 }
 function delProjFile(pid,fid){
   var p=projById(pid);if(!p||!p.files)return;
@@ -1670,7 +1672,7 @@ function openPI(pid){
   h+='<div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee">';
   h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:13px;font-weight:700">📎 מסמכי הפרויקט</span><span id="pf-status" style="font-size:11px;color:#834e0a;margin-right:auto"></span></div>';
   var catSel='<select class="fs" id="pf-cat" style="padding:5px 8px;font-size:12px">';PFCAT.forEach(function(cx){catSel+='<option value="'+ex(cx)+'">'+ex(cx)+'</option>';});catSel+='</select>';
-  h+='<div style="display:flex;align-items:center;gap:7px;margin-bottom:10px">'+catSel+'<label class="btn btn-sm btn-blue" style="cursor:pointer">📤 העלה קובץ<input type="file" style="display:none" onchange="handleProjFileUpload(\''+pid+'\',this)"></label><span style="font-size:11px;color:#aaa">PDF / תמונה / כל קובץ</span></div>';
+  h+='<div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;flex-wrap:wrap">'+catSel+'<input class="fi" id="pf-note" placeholder="תיאור (ספק, סכום, למה זה) — לא חובה" style="flex:1;min-width:180px;padding:5px 8px;font-size:12px"><label class="btn btn-sm btn-blue" style="cursor:pointer">📤 העלה קובץ<input type="file" style="display:none" onchange="handleProjFileUpload(\''+pid+'\',this)"></label><span style="font-size:11px;color:#aaa">PDF / תמונה / כל קובץ</span></div>';
   if(!files.length){h+='<div style="font-size:12px;color:#bbb;padding:4px 0">אין מסמכים עדיין — העלה הזמנת עבודה, חשבון מאושר, הצעת מחיר וכו\'.</div>';}
   else{
     PFCAT.forEach(function(cx){
