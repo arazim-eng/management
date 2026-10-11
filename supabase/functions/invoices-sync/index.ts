@@ -81,6 +81,14 @@ Deno.serve(async (req: Request) => {
     let entityMap: Record<string, string> = {};
     try { entityMap = JSON.parse(Deno.env.get("INVOICES_ENTITY_MAP") || "{}"); } catch { /* נבדק מיד */ }
     if (!Object.keys(entityMap).length) return json({ error: "missing/invalid INVOICES_ENTITY_MAP" }, 500);
+    // ⚠️ הסוד נכתב בקודים לטיניים (osek/company): האות ס' בערך עברי הגיעה
+    // משובשת מ-Deno.env (נתפס בהרצה היבשה 11.10.26) ושברה את המיזוג לפי ישות.
+    const ENTITY_CODES: Record<string, string> = { osek: "עוסק", company: "חברה" };
+    for (const k of Object.keys(entityMap)) {
+      const v = ENTITY_CODES[entityMap[k]] ?? entityMap[k];
+      if (v !== "עוסק" && v !== "חברה") return json({ error: "invalid INVOICES_ENTITY_MAP value" }, 500);
+      entityMap[k] = v;
+    }
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
