@@ -190,7 +190,7 @@ var DP={jlm:[{id:'j1',name:'מינהלת העירייה',emp:true},{id:'j2',name
 /* 30.7: every client also gets a free-text "אחר" department — stored as department_id="other:<שם>" */
 Object.keys(DP).forEach(function(k){DP[k].push({id:'other',name:'אחר — הקלד שם',emp:false});});
 var STS={no_order:{l:'ללא הזמנה',c:'#888',bg:'#f1f0ec'},pending_order:{l:'ממתין להזמנה',c:'#834e0a',bg:'#faebd8'},order_issued:{l:'יצאה הזמנה',c:'#8a5a00',bg:'#fdf1dc'},offer_sent:{l:'נשלח חשבון עסקה',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח עירייה',c:'#0e6d54',bg:'#e0f4ed'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},invoice_sent:{l:'נשלחה חשבונית מס',c:'#3b3387',bg:'#eeedfd'},closed:{l:'סגור',c:'#555',bg:'#f1f0ec'}};
-var IT=['חשבון עסקה','חשבונית מס','קבלה']; /* 21.7: הצעת מחיר הוסרה — משה לא רוצה אותן בטבלה */
+var IT=['חשבון עסקה','חשבונית מס','חשבונית מס קבלה','דרישת תשלום','קבלה']; /* 21.7: הצעת מחיר הוסרה — משה לא רוצה אותן בטבלה */
 var IST={draft:{l:'טיוטה',c:'#888',bg:'#f1f0ec'},sent:{l:'נשלח',c:'#1860a8',bg:'#e8f1fb'},accounting:{l:'בהנה"ח',c:'#834e0a',bg:'#faebd8'},paid:{l:'שולם',c:'#3a6b10',bg:'#e9f3dc'},cancelled:{l:'מבוטל',c:'#b02',bg:'#fce9e9'}};
 var MONTHS=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 /* 23.9.26 משה: "איפה שכתוב אחר שיהיה כתוב גם חשבונות ספקים ויהיה אפשר להכניס לשם מה שרוצים" — קטגוריה חופשית בתיק, עם תיאור */
@@ -397,12 +397,24 @@ function pInvs(pid){return D.invoices.filter(function(i){return i.project_id===p
 /* CASHFLOW SET: what money is genuinely expected.
    certain = חשבונית מס (sent/accounting).  expected = חשבון עסקה on a project WITH work order, not yet closed by a tax invoice.
    excluded = עסקה ללא הזמנה (speculative), הצעת מחיר/קבלה, and anything flagged exclude_cashflow. */
-function invCertain(i){return i.invoice_type==='חשבונית מס';}
+/* כלל הכסף (22.9.26, משה): מסמכי מס = חשבונית מס **וגם** חשבונית מס קבלה
+   (תשלום במקום — הכסף התקבל והמסמך הוא חשבונית לכל דבר), וזיכוי מקזז (סכום שלילי).
+   עד היום נספרה רק 'חשבונית מס', ומאז שמערכת החשבוניות היא המפיקה היחידה
+   מס/קבלה נכנסת לטבלה — בלי התיקון היא לא נספרה בהכנסות ובפרויקטים. */
+var TAX_TYPES=['חשבונית מס','חשבונית מס קבלה'];
+var CREDIT_TYPE='חשבונית זיכוי';
+/* 11.10.26 (משה): מסמך בין-חברתי (חברה↔עוסק) — הסנכרון מכניס אותו עם exclude_cashflow
+   ועם 'בין-חברתי · ' בתחילת ההערות. מוצג בטבלה, אבל **לעולם לא נספר ככסף** —
+   אחרת אותה הכנסה נספרת פעמיים, פעם בכל ישות. דרישת תשלום: מוצגת, לא נספרת כצפי. */
+var INTERCO_PREFIX='בין-חברתי · ';
+function isInterco(i){return !!i.exclude_cashflow&&String(i.notes||'').indexOf(INTERCO_PREFIX)===0;}
+function isTaxDoc(i){return TAX_TYPES.indexOf(i.invoice_type)>-1&&!isInterco(i);}
+function invCertain(i){return isTaxDoc(i);}
 function inCashflow(i){
   if(i.exclude_cashflow)return false;
   if(!(i.status==='sent'||i.status==='accounting'))return false;
   if(!Number(i.amount))return false;
-  if(i.invoice_type==='חשבונית מס')return true;
+  if(isTaxDoc(i))return true;   /* מס/קבלה כבר משולמת ⇒ ממילא לא בסטטוס sent */
   if(i.invoice_type==='חשבון עסקה'){if(chainCloser(i.id))return false;return hasWO(projById(i.project_id));}
   return false;
 }
@@ -422,9 +434,11 @@ function getOpenTA(pid,excludeId){var closed={};D.invoices.filter(function(i){re
 /* MONEY RULE: only חשבונית מס counts as real revenue. חשבון עסקה is a request, tracked separately. */
 function projFin(pid,p){
   var invs=pInvs(pid);
-  var tax=invs.filter(function(i){return i.invoice_type==='חשבונית מס';});
-  var sub=asum(tax,'amount');
-  var paid=asum(tax.filter(function(i){return i.status==='paid';}),'amount');
+  var tax=invs.filter(function(i){return isTaxDoc(i);});
+  /* זיכוי (סכום שלילי) מקזז מההכנסה ומהתקבולים */
+  var credits=invs.filter(function(i){return i.invoice_type===CREDIT_TYPE;});
+  var sub=asum(tax,'amount')+asum(credits,'amount');
+  var paid=asum(tax.filter(function(i){return i.status==='paid';}),'amount')+asum(credits,'amount');
   var pend=asum(tax.filter(function(i){return i.status==='sent'||i.status==='accounting';}),'amount');
   /* open חשבונות עסקה = not yet closed by a tax invoice */
   var openPf=invs.filter(function(i){return i.invoice_type==='חשבון עסקה'&&!chainCloser(i.id);});
@@ -517,7 +531,7 @@ function sc(lbl,val,sub,col){return '<div class="scard"><div class="slbl">'+lbl+
 function vDash(){
   var active=D.projects.filter(function(p){return p.status!=='closed';}).length;
   var noOrd=D.projects.filter(function(p){return p.status==='no_order';}).length;
-  var pI=pendI();var curYr=new Date().getFullYear();var paidI=D.invoices.filter(function(i){return i.invoice_type==='חשבונית מס'&&i.status==='paid'&&i.date_paid&&new Date(i.date_paid).getFullYear()===curYr;});var al=alrts();var nt=getNeedTax();
+  var pI=pendI();var curYr=new Date().getFullYear();var paidI=D.invoices.filter(function(i){return isTaxDoc(i)&&i.status==='paid'&&i.date_paid&&new Date(i.date_paid).getFullYear()===curYr;});var al=alrts();var nt=getNeedTax();
   var h='<div class="stats4">'+sc('פרויקטים פעילים',active,noOrd+' ללא הזמנת עבודה','')+sc('ממתין לתשלום',fc(asum(pI,'amount')),pI.length+' חשבוניות','#834e0a')+sc('שולם השנה',fc(asum(paidI,'amount')),'','#3a6b10')+sc('דרושה חשבונית מס',nt.length,'חשבונות עסקה ממתינים',nt.length?'#b02':'')+'</div>';
   var un=unassigned();
   if(un.length){h+='<div class="al" style="background:#fce9e9;border-color:#f0a0a0;color:#7a0000;margin-bottom:10px"><span>⚠️ <strong>'+un.length+' חשבוניות ללא שיוך לפרויקט</strong> (נוצרו אוטומטית מהמייל) — סה"כ '+fc(asum(un,'amount'))+'</span><span class="al-act" style="color:#b02" onclick="go(\'cashflow\')">טפל עכשיו ▸</span></div>';}
@@ -586,7 +600,7 @@ function cf(){D.f={cl:'',st:'',en:'',yr:'',q:'',hn:'',dp:''};go('projects');}
 function vInv(){
   var yr=D.f.yr;
   var sorted=D.invoices.filter(function(i){if(yr&&i.date_sent&&new Date(i.date_sent).getFullYear()!==parseInt(yr))return false;return true;}).sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at);});
-  var pI=pendI();var paidI=D.invoices.filter(function(i){return i.invoice_type==='חשבונית מס'&&i.status==='paid';});var nt=getNeedTax();
+  var pI=pendI();var paidI=D.invoices.filter(function(i){return isTaxDoc(i)&&i.status==='paid';});var nt=getNeedTax();
   var yrs=getInvYears();var curYr=String(new Date().getFullYear());if(yrs.indexOf(curYr)<0)yrs.unshift(curYr);
   var yrO='<option value="">כל השנים</option>';for(var i=0;i<yrs.length;i++)yrO+='<option value="'+yrs[i]+'"'+(D.f.yr===yrs[i]?' selected':'')+'>'+yrs[i]+'</option>';
   var h='<div class="stats4">'+sc('סה"כ חשבוניות',D.invoices.length,'','')+sc('ממתין לתשלום',fc(asum(pI,'amount')),pI.length+' חשבוניות','#834e0a')+sc('שולם סה"כ',fc(asum(paidI,'amount')),'','#3a6b10')+sc('דרושה חשבונית מס',nt.length,'ממתינים להוצאה',nt.length?'#b02':'')+'</div>';
@@ -1475,6 +1489,8 @@ function openI(iid,prefPid,prefClosesId){
   window._editInv=inv||{};
   var pO='<option value="">— בחר פרויקט —</option>';for(var i=0;i<D.projects.length;i++){var p=D.projects[i];var c=gc(p.client_id);var sel=(inv&&inv.project_id===p.id)||(!inv&&prefPid===p.id);pO+='<option value="'+p.id+'"'+(sel?' selected':'')+'>'+ex(p.name)+' ('+ex(cliName(p))+')</option>';}
   var tO='';for(var i=0;i<IT.length;i++)tO+='<option value="'+IT[i]+'"'+(inv&&inv.invoice_type===IT[i]?' selected':'')+'>'+IT[i]+'</option>';
+  /* סוג שהגיע מסנכרון ואינו ברשימה (זיכוי, קבלה על תרומה…) — נשמר כמות שהוא, שלא יוחלף בשקט בעריכה */
+  if(inv&&inv.invoice_type&&IT.indexOf(inv.invoice_type)<0)tO+='<option value="'+ex(inv.invoice_type)+'" selected>'+ex(inv.invoice_type)+'</option>';
   var stO='';for(var k in IST)stO+='<option value="'+k+'"'+((inv?inv.status:'draft')===k?' selected':'')+'>'+IST[k].l+'</option>';
   var h='<div class="mhdr"><span class="mtitle">'+(inv?'עריכת חשבונית':'חשבונית חדשה')+'</span><button class="mx" onclick="closeM()">✕</button></div>';
   h+='<div class="fg2">';
