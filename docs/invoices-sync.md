@@ -117,7 +117,7 @@
 | `INVOICES_SYNC_KEY` | סוד משותף אקראי (למשל `openssl rand -hex 32`). הפונקציה דורשת אותו בכותרת `x-sync-key` — בלעדיו 401. **אותו ערך** נשמר גם ב-Vault של המסד בשם `invoices_sync_key`, משם ה-cron שולף אותו |
 | `INVOICES_API_KEY` | מפתח API של מערכת החשבוניות, **scope יחיד: `documents:read`** |
 | `INVOICES_API_BASE` | `https://invoices.arazim-eng.co.il` (ברירת מחדל — אפשר לא להגדיר) |
-| `INVOICES_ENTITY_MAP` | `{"<uuid של החברה>":"חברה","<uuid של העוסק>":"עוסק"}` |
+| `INVOICES_ENTITY_MAP` | `{"<uuid של החברה>":"company","<uuid של העוסק>":"osek"}` |
 
 `SUPABASE_URL` ו-`SUPABASE_SERVICE_ROLE_KEY` מסופקים אוטומטית.
 
