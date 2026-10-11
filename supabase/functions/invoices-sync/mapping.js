@@ -22,6 +22,10 @@ export const DOC_TYPE_LABELS = {
   receipt: 'קבלה',
   donation_receipt: 'קבלה על תרומה',
   proforma: 'חשבון עסקה',
+  // 11.10.26 (משה): סוג חדש במערכת החשבוניות (0044). נכנס לטבלה בשמו, אבל
+  // **לא** נספר כצפי/תזרים — inCashflow ב-index.html מכיר רק מס/עסקה, וכך
+  // דרישת תשלום שהופקה לצד חשבון עסקה על אותו סכום לא מכפילה את הצפי.
+  payment_request: 'דרישת תשלום',
   credit_note: 'חשבונית זיכוי',
 };
 
@@ -39,6 +43,34 @@ export const SKIP_TYPES = [
 
 /** מסמכים שהם תקבול בעצמם — נרשמים ישר כ"שולם" ולא כ"נשלח וממתין". */
 const PAID_ON_ISSUE = ['tax_invoice_receipt', 'receipt', 'donation_receipt'];
+
+/**
+ * מסמכים שלא נכנסים לטבלה לעולם — רשימה מפורשת וקצרה, לא כלל.
+ * מפתח: `<ישות>|<doc_type>|<מספר>`.
+ */
+export const EXCLUDED_DOCS = [
+  'חברה|tax_invoice_receipt|30344',   // ₪1, "בדיקת Grow" (27.9.26) — מסמך בדיקה של הסליקה
+];
+
+/**
+ * מסמך בין-חברתי: הלקוח הוא אחת משתי הישויות של ארזים (החברה מחייבת את
+ * העוסק או להיפך — מסמך מראה של חשבונית ללקוח האמיתי). 11.10.26 (משה):
+ * נכנס לטבלה כדי שיראו אותו, אבל עם exclude_cashflow וסימון בהערות, ולעולם
+ * לא נספר ככסף — אחרת אותה הכנסה נספרת פעמיים (פעם בכל ישות).
+ */
+export const INTERCO_TAX_IDS = ['201608239', '516081387'];
+export const INTERCO_PREFIX = 'בין-חברתי · ';
+export function isIntercompany(doc) {
+  const taxId = String((doc && doc.client_snapshot && doc.client_snapshot.tax_id) || '').replace(/\D/g, '');
+  return Boolean(taxId) && INTERCO_TAX_IDS.includes(taxId);
+}
+
+/** סוגים בטבלה שהם "חוב" — אפשר לסמן אותם כשולמו. */
+export const TAX_LABELS = ['חשבונית מס', 'חשבונית מס קבלה'];
+export const DEBT_LABELS = ['חשבונית מס', 'חשבון עסקה', 'דרישת תשלום'];
+/** סוגי מסמך שלקישור שלהם (ref) יש השפעה על שורה אחרת בטבלה. */
+export const LINK_TYPES = ['receipt', 'tax_invoice', 'tax_invoice_receipt'];
+const TOLERANCE = 2;   // ₪ — אותה סבילות כמו במיזוג מול שורה ידנית
 
 /** קידומות של מקורות אוטומטיים אחרים — שורות כאלה לא נוגעים בהן לעולם. */
 export const AUTOMATED_PREFIXES = ['ezcount-', 'sumit-', 'arz-'];
@@ -70,6 +102,7 @@ export function mapDocument(doc, entityMap, pdfBase) {
   // כדי שלא ייווצרו חשבוניות של החברה תחת העוסק ולהיפך.
   const entity = entityMap[doc.entity_id];
   if (!entity) return drop('unknown_entity');
+  if (EXCLUDED_DOCS.includes(`${entity}|${docType}|${doc.doc_number}`)) return drop('excluded_doc');
 
   // total_agorot כולל מע"מ — בדיוק כמו doc_price_total של איזי קאונט,
   // וזה מה שטבלת הניהול מחזיקה (ראו לוגיקת המיזוג עם שורה ידנית ×1.18).
@@ -87,8 +120,20 @@ export function mapDocument(doc, entityMap, pdfBase) {
     status: PAID_ON_ISSUE.includes(docType) ? 'paid' : 'sent',
     notes: (doc.client_snapshot && doc.client_snapshot.name) || null,
     file_url: pdfBase ? `${pdfBase}/api/v1/documents/${doc.id}/pdf` : null,
+    // תמיד מפורש: העמודה NOT NULL, ושורות באותה אצווה חייבות אותם מפתחות
+    exclude_cashflow: false,
   };
+  if (isIntercompany(doc)) {
+    row.exclude_cashflow = true;
+    row.notes = INTERCO_PREFIX + (row.notes || '');
+  }
   if (row.status === 'paid') row.date_paid = doc.issue_date || null;
+  // חוב שכבר שולם במלואו במערכת החשבוניות (payment_state — קיים רק ב-API
+  // המעודכן; בלעדיו השורה נכנסת 'sent' והבדיקה החוזרת תסמן אותה אחר כך).
+  if (row.status === 'sent' && isSettled(doc.total_agorot, doc.payment_state)) {
+    row.status = 'paid';
+    row.date_paid = paidDate(doc.payment_state, doc.issue_date);
+  }
   return { skip: null, row, docType };
 }
 
@@ -162,7 +207,8 @@ export function inheritFromManual(row, manual) {
     submitted_to_muni: manual.submitted_to_muni ?? false,
     muni_submit_date: manual.muni_submit_date ?? null,
     closes_id: manual.closes_id ?? null,
-    exclude_cashflow: manual.exclude_cashflow ?? false,
+    // בין-חברתי נשאר מחוץ לכסף גם אם השורה הידנית לא סומנה
+    exclude_cashflow: Boolean(row.exclude_cashflow || manual.exclude_cashflow),
   };
   if (manual.status === 'paid') {
     merged.status = 'paid';
@@ -182,4 +228,122 @@ export function sinceWithOverlap(lastCreatedAt, overlapMinutes) {
   const t = new Date(lastCreatedAt).getTime();
   if (Number.isNaN(t)) return null;
   return new Date(t - (overlapMinutes || 0) * 60_000).toISOString();
+}
+
+/* ══════════════ קישורים בין מסמכים ומצב תשלום (11.10.26) ══════════════
+ * קבלה סוגרת חשבונית; חשבונית מס סוגרת חשבון עסקה. במערכת החשבוניות זה
+ * ref_document_id (מסמך שלנו) או ref_historical_id (מסמך מסאמיט/איזי קאונט).
+ * כאן רק ההחלטות — בלי רשת ובלי מסד. הכלל: התאמה בטוחה או דיווח, לא ניחוש.
+ */
+
+/** האם החוב כוסה במלואו לפי payment_state של ה-API (undefined ⇒ לא ידוע ⇒ false). */
+export function isSettled(totalAgorot, ps) {
+  if (!ps) return false;
+  if (typeof ps.paid_in_full === 'boolean') return ps.paid_in_full;
+  const total = Number(totalAgorot) || 0;   // ה-API הישן: רק paid_agorot
+  return total > 0 && (Number(ps.paid_agorot) || 0) >= total;
+}
+
+/** תאריך התשלום: paid_at לפי שעון ישראל, ואם אין — ברירת המחדל שהועברה. */
+export function paidDate(ps, fallback) {
+  const t = ps && ps.paid_at ? new Date(ps.paid_at) : null;
+  if (!t || Number.isNaN(t.getTime())) return fallback || null;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(t);
+}
+
+/**
+ * הקישור של מסמך, מנורמל. המקור: שורת הרשימה (API מעודכן) או, כשהשדות לא
+ * קיימים בה (API ישן), התשובה של GET /documents/{id}.
+ * ‏known=false ⇒ אין לנו דרך לדעת אם יש קישור (לא "אין קישור").
+ */
+export function linkOf(doc, detail) {
+  const hasList = doc && Object.prototype.hasOwnProperty.call(doc, 'ref_document_id');
+  const d = hasList ? doc : (detail && detail.document) || null;
+  if (!d) return { known: false, refDocId: null, refDoc: null, refHistId: null, refHist: null };
+  const side = hasList ? doc : detail;
+  return {
+    known: true,
+    refDocId: d.ref_document_id || null,
+    refDoc: (side && side.ref_document) || null,
+    refHistId: d.ref_historical_id || null,
+    refHist: (side && side.ref_historical) || null,
+  };
+}
+
+/** סוג מסמך (שלנו או היסטורי) → אילו סוגים בטבלה יכולים להיות השורה שלו. */
+export function compatibleLabels(docType) {
+  if (docType === 'tax_invoice' || docType === 'tax_invoice_receipt') return TAX_LABELS;
+  if (docType === 'proforma') return ['חשבון עסקה'];
+  // דרישות תשלום של סאמיט יובאו כ-'other'; בטבלה הן נרשמו בזמנו כחשבון עסקה
+  if (docType === 'payment_request' || docType === 'other') return ['דרישת תשלום', 'חשבון עסקה'];
+  return [];
+}
+
+/**
+ * השורה בטבלה של מסמך **היסטורי** (אין לו arz-, הוא הגיע מאיזי קאונט/סאמיט/
+ * הקלדה). אותו כלל כמו במיזוג: אותו מספר, אותה ישות, סכום זהה או ×1.18 בסבילות
+ * ₪2 — ורק שורה של חוב (לא קבלה/זיכוי). בדיוק התאמה אחת, אחרת מדווחים ולא בוחרים.
+ *
+ * הסוג **אינו** תנאי סף: בטבלה יש שורות שה-webhook של איזי קאונט תייג לא נכון
+ * (חשבונית מס שרשומה כ"חשבון עסקה"), ומספר+ישות+סכום מזהים את המסמך בוודאות.
+ * הסוג משמש רק לשבירת שוויון, ואי-התאמה חוזרת ב-typeMismatch כדי שתדווח.
+ * @returns {{row: object|null, reason: string|null, typeMismatch: boolean}}
+ */
+export function pickHistoricalTarget(candidates, hist, entity) {
+  const miss = (reason) => ({ row: null, reason, typeMismatch: false });
+  const labels = compatibleLabels(String((hist && hist.doc_type) || ''));
+  const gross = agorotToShekels(hist && hist.total_agorot);
+  if (!hist || hist.doc_number == null || !labels.length || !gross) return miss('hist_incomplete');
+  const debt = [...TAX_LABELS, ...DEBT_LABELS];
+  let hits = (candidates || []).filter((r) => {
+    if (!r || String(r.invoice_number) !== String(hist.doc_number)) return false;
+    if (String(r.id).startsWith('arz-')) return false;
+    if (r.entity !== entity) return false;
+    if (r.status === 'cancelled') return false;
+    if (!debt.includes(r.invoice_type)) return false;
+    const a = Math.abs(Number(r.amount) || 0);
+    if (!a) return false;
+    return Math.abs(a - Math.abs(gross)) <= TOLERANCE || Math.abs(a * 1.18 - Math.abs(gross)) <= TOLERANCE;
+  });
+  const many = hits.length > 1;
+  if (many) hits = hits.filter((r) => labels.includes(r.invoice_type));
+  if (hits.length !== 1) return miss(many ? 'hist_ambiguous' : 'hist_no_match');
+  return { row: hits[0], reason: null, typeMismatch: !labels.includes(hits[0].invoice_type) };
+}
+
+/**
+ * מה הקישור של מסמך משנה בטבלה.
+ * @param doc    המסמך מה-API
+ * @param target השורה בטבלה של מסמך המקור (או null)
+ * @param targetGross סכום מסמך המקור כולל מע"מ, בשקלים
+ * @returns {{targetPatch: object|null, closesId: string|null, report: string|null}}
+ *   targetPatch — לכתוב על שורת המקור; closesId — לכתוב על השורה של doc עצמו.
+ */
+export function planLink(doc, target, targetGross) {
+  const none = { targetPatch: null, closesId: null, report: null };
+  if (!target) return none;
+  const type = String(doc.doc_type || '');
+  if (type === 'receipt') {
+    // קבלה: מסמנים את החוב שסגרה כשולם — רק כשהיא מכסה אותו במלואו.
+    // גם 'חשבונית מס קבלה' שנשארה sent (תיוג שגוי של ה-webhook הישן) היא חוב שנסגר
+    if (target.status === 'paid' || target.status === 'cancelled') return none;
+    if (!DEBT_LABELS.includes(target.invoice_type) && !TAX_LABELS.includes(target.invoice_type)) return { ...none, report: 'target_not_debt' };
+    const got = agorotToShekels(doc.total_agorot);
+    const due = Math.abs(Number(targetGross) || 0);
+    if (!due) return { ...none, report: 'target_amount_unknown' };
+    if (got < due - TOLERANCE) return { ...none, report: 'partial_receipt' };
+    return { targetPatch: { status: 'paid', date_paid: doc.issue_date || null }, closesId: null, report: null };
+  }
+  if (type === 'tax_invoice' || type === 'tax_invoice_receipt') {
+    // חשבונית מס (או מס/קבלה) על חשבון עסקה / דרישת תשלום ⇒ שרשרת הסגירה
+    if (target.invoice_type === 'חשבון עסקה' || target.invoice_type === 'דרישת תשלום') {
+      return { targetPatch: null, closesId: String(target.id), report: null };
+    }
+  }
+  return none;
+}
+
+/** האם שורה בטבלה היא חוב פתוח של מערכת החשבוניות שכדאי לבדוק אם שולם. */
+export function needsRecheck(r) {
+  return Boolean(r) && String(r.id).startsWith('arz-') && r.status === 'sent' && DEBT_LABELS.includes(r.invoice_type);
 }

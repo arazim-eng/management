@@ -29,6 +29,8 @@ entrypoint = "./functions/debt-mail/index.ts"
 
 [functions.invoices-sync]
 enabled = true
-verify_jwt = true
+# האימות בתוך הפונקציה: כותרת x-sync-key מול הסוד INVOICES_SYNC_KEY (כמו ezcount-webhook).
+# מפתח ה-anon ציבורי (יושב ב-index.html) ולכן verify_jwt לא היה הגנה אמיתית.
+verify_jwt = false
 import_map = "./functions/invoices-sync/deno.json"
 entrypoint = "./functions/invoices-sync/index.ts"

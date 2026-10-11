@@ -10,15 +10,14 @@
  *   node scripts/invoices-sync-dry.mjs --apply --from 2026-09-01   # ⚠️ כותב באמת
  *
  * סביבה:
- *   SB_URL   (ברירת מחדל: פרויקט הניהול)
- *   SB_ANON  מפתח anon של הפרויקט — ה-gateway דורש JWT (verify_jwt).
- *            זה מפתח ציבורי (הוא יושב גם ב-index.html), לא סוד.
+ *   SB_URL    (ברירת מחדל: פרויקט הניהול)
+ *   SYNC_KEY  הסוד המשותף של הפונקציה (INVOICES_SYNC_KEY) — נשלח בכותרת x-sync-key.
  * ‏מפתח ה-API של מערכת החשבוניות **לא** עובר כאן — הוא יושב כסוד של הפונקציה.
  */
 const SB_URL = process.env.SB_URL || 'https://kwmldvcsucbuvsjsiuaq.supabase.co';
-const SB_ANON = process.env.SB_ANON || '';
-if (!SB_ANON) {
-  console.error('חסר SB_ANON (מפתח ה-anon של פרויקט הניהול).');
+const SYNC_KEY = process.env.SYNC_KEY || '';
+if (!SYNC_KEY) {
+  console.error('חסר SYNC_KEY (הסוד INVOICES_SYNC_KEY של הפונקציה).');
   process.exit(1);
 }
 
@@ -36,7 +35,7 @@ console.log('קורא ל-', url.pathname + url.search, '\n');
 
 const res = await fetch(url, {
   method: 'POST',
-  headers: { Authorization: `Bearer ${SB_ANON}`, 'Content-Type': 'application/json' },
+  headers: { 'x-sync-key': SYNC_KEY, 'Content-Type': 'application/json' },
 });
 const out = await res.json();
 if (!res.ok || out.error) { console.error('שגיאה:', JSON.stringify(out, null, 2)); process.exit(1); }
@@ -49,6 +48,13 @@ console.log('מיזוג עם שורה ידנית', n('merge'));
 console.log('ללא שינוי          ', n('unchanged'));
 console.log('דולגו               ', n('skipped'), JSON.stringify(out.skipped_by_reason ?? {}));
 console.log('התנגשויות          ', n('conflicts'));
+console.log('סומנו שולם (קבלה)  ', n('linked_paid'));
+console.log('שרשרת סגירה        ', n('linked_closes'));
+console.log('בדיקה חוזרת        ', JSON.stringify(out.recheck ?? {}));
+if (out.report_list?.length) {
+  console.log('\n⚠️  דורש בדיקה ידנית (קישור שלא נפתר / קבלה חלקית) — לא נכתב ניחוש:');
+  out.report_list.forEach((r) => console.log('   ', r.doc, '→', r.reason));
+}
 if (out.conflicts?.length) {
   console.log('\n⚠️  אותו מסמך קיים כבר משורת איזי קאונט/סאמיט — לא נכתב כדי לא להיספר פעמיים:');
   out.conflicts.forEach((c) => console.log('   ', c));
@@ -60,6 +66,6 @@ if (out.sample?.length) {
   const pad = (s, w) => String(s ?? '').padEnd(w);
   console.log(pad('פעולה', 9), pad('מס׳', 8), pad('סוג', 18), pad('ישות', 6), pad('סכום', 12), 'תאריך');
   for (const s of out.sample) {
-    console.log(pad(s.action, 9), pad(s.number, 8), pad(s.type, 18), pad(s.entity, 6), pad(s.amount, 12), s.date_sent ?? '');
+    console.log(pad(s.action, 10), pad(s.number, 8), pad(s.type, 18), pad(s.entity, 6), pad(s.amount, 12), s.date_sent ?? '');
   }
 }
