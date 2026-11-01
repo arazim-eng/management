@@ -80,15 +80,20 @@ function messageKey(email: any): string {
   return email.internetMessageId || email.id;
 }
 
-async function getProcessedIds(): Promise<Set<string>> {
+// ai_failed rows are not "processed": they are retried every run until they
+// succeed or leave the lookback window. They come back in `failed` so the digest
+// reports each failure once instead of hourly.
+async function getProcessedIds(): Promise<{ done: Set<string>; failed: Set<string> }> {
   const since = new Date(Date.now() - (LOOKBACK_DAYS + 2) * 24 * 60 * 60 * 1000).toISOString();
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/processed_emails?select=message_id&processed_at=gte.${since}`,
+    `${SUPABASE_URL}/rest/v1/processed_emails?select=message_id,outcome&processed_at=gte.${since}`,
     { headers: sbHeaders }
   );
-  if (!res.ok) return new Set();
+  if (!res.ok) return { done: new Set(), failed: new Set() };
   const rows = await res.json();
-  return new Set(rows.map((r: any) => r.message_id));
+  const done = new Set<string>(), failed = new Set<string>();
+  for (const r of rows) (r.outcome === "ai_failed" ? failed : done).add(r.message_id);
+  return { done, failed };
 }
 
 async function markProcessed(email: any, mailbox: string, outcome: string) {
@@ -211,9 +216,14 @@ async function updateInvoiceStatus(invoiceId: string, paymentDate: string | null
 const PAYMENT_SCHEMA = {
   type: "object",
   properties: {
+    is_payment_notice: {
+      type: "boolean",
+      description: "true רק אם המסמך מודיע שכסף שולם או הועבר לספק. false אם זו הודעה מסוג אחר, למשל דחיית חשבונית, ביטול, בקשת מסמכים או עדכון סטטוס",
+    },
+    notice_summary: { type: "string", description: "משפט אחד בעברית: מה המסמך אומר" },
     invoices: {
       type: "array",
-      description: "פירוט החשבוניות ששולמו לפי המסמך",
+      description: "פירוט החשבוניות ששולמו לפי המסמך. ריק אם זו לא הודעת תשלום",
       items: {
         type: "object",
         properties: {
@@ -227,13 +237,13 @@ const PAYMENT_SCHEMA = {
     total_amount: { type: ["number", "null"], description: "הסכום הכולל ששולם" },
     payment_date: { type: ["string", "null"], description: "תאריך התשלום YYYY-MM-DD" },
     payer: { type: ["string", "null"], description: "שם המשלם (עירייה/גוף)" },
+    // the API rejects enum combined with a type array, hence anyOf
     payee_entity: {
-      type: ["string", "null"],
-      enum: ["עוסק", "חברה", null],
+      anyOf: [{ type: "string", enum: ["עוסק", "חברה"] }, { type: "null" }],
       description: "המוטב שקיבל את התשלום: 'עוסק' אם המוטב הוא משה סעדה עוסק מורשה, 'חברה' אם המוטב הוא מ.ס ארזים הנדסה בע\"מ",
     },
   },
-  required: ["invoices", "total_amount", "payment_date", "payer", "payee_entity"],
+  required: ["is_payment_notice", "notice_summary", "invoices", "total_amount", "payment_date", "payer", "payee_entity"],
   additionalProperties: false,
 };
 
@@ -284,7 +294,7 @@ async function askClaude(schema: object, content: any[], results: string[]): Pro
     headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-opus-4-8",
-      max_tokens: 2000,
+      max_tokens: 4000,
       thinking: { type: "adaptive" },
       output_config: { format: { type: "json_schema", schema } },
       messages: [{ role: "user", content }]
@@ -296,9 +306,13 @@ async function askClaude(schema: object, content: any[], results: string[]): Pro
     return null;
   }
   try {
-    const text = (data.content || []).find((b: any) => b.type === "text")?.text || "{}";
+    const text = (data.content || []).find((b: any) => b.type === "text")?.text;
+    if (!text) throw new Error("no text");
     return JSON.parse(text);
-  } catch { return null; }
+  } catch {
+    results.push(`❌ Anthropic: תשובה לא קריאה (stop_reason: ${data.stop_reason})`);
+    return null;
+  }
 }
 
 async function extractPaymentInfo(pdfBase64: string, emailBody: string, results: string[]): Promise<any> {
@@ -308,7 +322,7 @@ async function extractPaymentInfo(pdfBase64: string, emailBody: string, results:
   }
   content.push({
     type: "text",
-    text: `זהו מסמך הודעת תשלום/זיכוי מעירייה לספק. חלץ את פרטי התשלום כולל פירוט לכל חשבונית.\nתוכן המייל: ${emailBody.slice(0, 800)}`
+    text: `זהו מסמך שהתקבל מעירייה אצל ספק. קבע אם הוא הודעה על תשלום שבוצע, ואם כן חלץ את פרטי התשלום כולל פירוט לכל חשבונית.\nתוכן המייל: ${emailBody.slice(0, 800)}`
   });
   return await askClaude(PAYMENT_SCHEMA, content, results);
 }
@@ -423,8 +437,16 @@ async function processPaymentEmail(token: string, mailbox: string, email: any, i
   }
   const info = await extractPaymentInfo(pdfB64, body, results);
 
-  if (!info?.invoices?.length) {
-    digest.push(`⚠️ מייל תשלום מ-${fromAddress(email)} — לא זוהה מספר חשבונית, בדוק ידנית (נושא: ${email.subject})`);
+  // a failed AI call says nothing about the document, so it must not read as one
+  if (!info) return "ai_failed";
+
+  if (!info.is_payment_notice) {
+    digest.push(`ℹ️ הודעה מ-${fromAddress(email)} שאינה הודעת תשלום, הטבלה לא עודכנה (נושא: ${email.subject})\n   ${info.notice_summary}`);
+    return "not_payment_notice";
+  }
+
+  if (!info.invoices?.length) {
+    digest.push(`⚠️ הודעת תשלום מ-${fromAddress(email)} — המסמך נקרא אבל לא נמצא בו מספר חשבונית, בדוק ידנית (נושא: ${email.subject})\n   ${info.notice_summary}`);
     return "no_invoice_numbers";
   }
 
@@ -487,7 +509,7 @@ async function runAgent() {
   let token: string | null = null;
   try {
     token = await getAzureToken();
-    const [invoices, processed] = await Promise.all([getInvoices(), getProcessedIds()]);
+    const [invoices, { done: processed, failed }] = await Promise.all([getInvoices(), getProcessedIds()]);
     const seenThisRun = new Set<string>();
 
     for (const mailbox of MAILBOXES) {
@@ -502,6 +524,9 @@ async function runAgent() {
           outcome = await processEZcountEmail(token, mailbox, email, invoices, results, digest);
         } else if (PAYMENT_SENDERS.includes(sender)) {
           outcome = await processPaymentEmail(token, mailbox, email, invoices, results, digest);
+          if (outcome === "ai_failed" && !failed.has(key)) {
+            digest.push(`❌ לא הצלחתי לקרוא הודעה מ-${sender}, אנסה שוב בכל הרצה (נושא: ${email.subject})\n   ${results[results.length - 1] || ""}`);
+          }
         }
         if (outcome) {
           seenThisRun.add(key);
